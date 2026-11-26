@@ -287,7 +287,7 @@ export default function Builder() {
           {step === 0 && (
             <div className="panel">
               <div className="panel-header">Target Configuration</div>
-              <div className="panel-body" style={{ maxWidth: 800 }}>
+              <div className="panel-body" style={{ maxWidth: 800, padding: '12px 16px' }}>
 
                 {/* Target OS */}
                 <div className="form-group">
@@ -297,11 +297,11 @@ export default function Builder() {
                       const selected = form.target_os === os.id;
                       return (
                         <div key={os.id} onClick={() => setForm({...form, target_os: os.id})} style={{
-                          padding: '20px 16px', textAlign: 'center', cursor: 'pointer',
+                          padding: '12px 10px', textAlign: 'center', cursor: 'pointer',
                           border: selected ? '2px solid var(--green)' : '1px solid var(--border)',
                           background: selected ? 'rgba(0,255,136,0.05)' : 'var(--surface)',
                         }}>
-                          <div style={{ fontSize: 32, marginBottom: 8 }}>{os.icon}</div>
+                          <div style={{ fontSize: 24, marginBottom: 4 }}>{os.icon}</div>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
                             color: selected ? 'var(--green)' : 'var(--text-sec)',
@@ -314,23 +314,23 @@ export default function Builder() {
                 </div>
 
                 {/* App Disguise */}
-                <div className="form-group" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                  <label className="form-label" style={{ marginBottom: 12 }}>
+                <div className="form-group" style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                  <label className="form-label" style={{ marginBottom: 6 }}>
                     App Disguise
                     <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>
                       Windows only — clones icon, version info &amp; process name
                     </span>
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
                     {APP_DISGUISES.map(app => {
                       const isSelected = form.disguise === app.id;
                       return (
                         <div key={app.id} onClick={() => setForm({...form, disguise: app.id})} style={{
-                          padding: '10px 8px', textAlign: 'center', cursor: 'pointer',
+                          padding: '6px 4px', textAlign: 'center', cursor: 'pointer',
                           border: isSelected ? '2px solid var(--green)' : '1px solid var(--border)',
                           background: isSelected ? 'rgba(0, 255, 65, 0.05)' : 'var(--surface)',
                           borderRadius: 4, transition: 'all 0.15s', position: 'relative',
-                          minHeight: 72, display: 'flex', flexDirection: 'column',
+                          minHeight: 56, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center',
                         }}>
                           {isSelected && (
@@ -343,11 +343,11 @@ export default function Builder() {
                           )}
                           {app.icon ? (
                             <img src={`https://icon.horse/icon/${app.domain}`} alt={app.label}
-                              width={28} height={28} style={{ marginBottom: 4, opacity: 0.9 }}
+                              width={22} height={22} style={{ marginBottom: 2, opacity: 0.9 }}
                               onError={(e) => { e.target.style.display = 'none'; }} />
                           ) : (
                             <div style={{
-                              width: 28, height: 28, marginBottom: 4,
+                              width: 22, height: 22, marginBottom: 2,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 16, color: 'var(--text-muted)', opacity: 0.5,
                             }}>
@@ -402,7 +402,7 @@ export default function Builder() {
           {step === 1 && (
             <div className="panel">
               <div className="panel-header">Configuration</div>
-              <div className="panel-body" style={{ maxWidth: 800 }}>
+              <div className="panel-body" style={{ maxWidth: 800, padding: '12px 16px' }}>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Server URL</label>
@@ -445,15 +445,15 @@ export default function Builder() {
                 </div>
 
                 {/* Modules by category */}
-                <div className="form-group" style={{ marginTop: 16 }}>
-                  <label className="form-label">Modules ({form.modules.length} selected)</label>
+                <div className="form-group" style={{ marginTop: 10 }}>
+                  <label className="form-label" style={{ marginBottom: 4 }}>Modules ({form.modules.length} selected)</label>
                   {Object.entries(MODULE_CATEGORIES).map(([category, modules]) => (
-                    <div key={category} style={{ marginBottom: 12 }}>
+                    <div key={category} style={{ marginBottom: 8 }}>
                       <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                        fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
                         color: 'var(--text-muted)', letterSpacing: '1.4px',
-                        textTransform: 'uppercase', marginBottom: 6,
-                        paddingBottom: 4, borderBottom: '1px solid var(--border)',
+                        textTransform: 'uppercase', marginBottom: 4,
+                        paddingBottom: 2, borderBottom: '1px solid var(--border)',
                       }}>{category}</div>
                       <div className="checkbox-group">
                         {modules.map(mod => (
@@ -469,7 +469,7 @@ export default function Builder() {
                 </div>
 
                 {/* Code Signing */}
-                <div className="form-group" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                <div className="form-group" style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                   <label className="form-label">Code Signing (Azure Trusted Signing)</label>
                   <div className="radio-group">
                     <span className={`radio-item ${!form.sign_binary ? 'selected' : ''}`}
@@ -502,7 +502,7 @@ export default function Builder() {
           {/* STEP 2 — BUILD */}
           {step === 2 && (
             <div className="panel">
-              <div className="panel-header">Build Summary</div>
+              <div className="panel-header" style={{ padding: '8px 12px' }}>Build Summary</div>
               <div className="panel-body" style={{ maxWidth: 800 }}>
                 {/* Summary */}
                 <div style={{
