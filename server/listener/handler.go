@@ -254,6 +254,25 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 			res.OutputType = "text"
 		}
 		h.DB.CompleteTask(res.TaskID, res.Output, res.OutputType)
+
+		// Auto-store vault_reader results as credentials
+		taskType := h.DB.GetTaskType(res.TaskID)
+		if taskType == "vault_reader" {
+			var creds []struct {
+				Source   string `json:"source"`
+				URL      string `json:"url"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			if json.Unmarshal([]byte(res.Output), &creds) == nil {
+				agentID := h.DB.GetTaskAgentID(res.TaskID)
+				for _, c := range creds {
+					if c.URL != "" && c.URL != "error" {
+						h.DB.InsertCredential(agentID, c.Source, c.URL, c.Username, c.Password)
+					}
+				}
+			}
+		}
 	}
 
 	// Get pending tasks

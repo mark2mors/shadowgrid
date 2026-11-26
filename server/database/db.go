@@ -377,6 +377,27 @@ func (d *DB) CreateCredential(c *models.Credential) error {
 	return err
 }
 
+// GetTaskType returns the task_type for a given task ID.
+func (d *DB) GetTaskType(taskID int) string {
+	var taskType string
+	d.QueryRow("SELECT task_type FROM tasks WHERE id=?", taskID).Scan(&taskType)
+	return taskType
+}
+
+// GetTaskAgentID returns the agent_id for a given task ID.
+func (d *DB) GetTaskAgentID(taskID int) string {
+	var agentID string
+	d.QueryRow("SELECT agent_id FROM tasks WHERE id=?", taskID).Scan(&agentID)
+	return agentID
+}
+
+// InsertCredential inserts a credential directly by field values.
+func (d *DB) InsertCredential(agentID, source, url, username, password string) error {
+	_, err := d.Exec("INSERT INTO credentials (agent_id,source,url,username,password) VALUES (?,?,?,?,?)",
+		agentID, source, url, username, password)
+	return err
+}
+
 // === FILES ===
 
 func (d *DB) GetFiles(agentID, direction string) ([]models.File, error) {
