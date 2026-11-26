@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { DashboardIcon, AgentsIcon, CredentialsIcon, FilesIcon, ListenersIcon, BuilderIcon, SettingsIcon } from '../icons';
 import { LogoSidebar } from './Logo';
 
@@ -12,7 +13,11 @@ const items = [
   { id: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
-export default function Sidebar({ active, onNavigate }) {
+export default function Sidebar() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const active = location.pathname.replace('/', '') || 'dashboard';
+
   return (
     <div style={{
       width: 60, minWidth: 60, background: '#191b20',
@@ -29,7 +34,7 @@ export default function Sidebar({ active, onNavigate }) {
       {items.map(item => (
         <div
           key={item.id}
-          onClick={() => onNavigate(item.id)}
+          onClick={() => navigate('/' + item.id)}
           style={{
             width: 44, height: 44,
             display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { isLoggedIn, clearToken, api } from './api';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -12,19 +13,8 @@ import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import StatusBar from './components/StatusBar';
 
-const PAGES = {
-  dashboard: Dashboard,
-  agents: Agents,
-  credentials: Credentials,
-  files: Files,
-  listeners: Listeners,
-  builder: Builder,
-  settings: Settings,
-};
-
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(isLoggedIn());
-  const [page, setPage] = useState('dashboard');
   const [operator, setOperator] = useState('');
   const [stats, setStats] = useState({});
 
@@ -40,21 +30,37 @@ export default function App() {
   }, [loggedIn]);
 
   if (!loggedIn) {
-    return <Login onLogin={() => setLoggedIn(true)} />;
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login onLogin={() => setLoggedIn(true)} />} />
+          <Route path="*" element={<Navigate to="/login" />} />
+        </Routes>
+      </BrowserRouter>
+    );
   }
 
-  const PageComponent = PAGES[page] || Dashboard;
-
   return (
-    <div className="app">
-      <TopBar operator={operator} onLogout={() => { clearToken(); setLoggedIn(false); }} />
-      <div className="app-body">
-        <Sidebar active={page} onNavigate={setPage} />
-        <div className="main-content">
-          <PageComponent />
+    <BrowserRouter>
+      <div className="app">
+        <TopBar operator={operator} onLogout={() => { clearToken(); setLoggedIn(false); }} />
+        <div className="app-body">
+          <Sidebar />
+          <div className="main-content">
+            <Routes>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/agents" element={<Agents />} />
+              <Route path="/credentials" element={<Credentials />} />
+              <Route path="/files" element={<Files />} />
+              <Route path="/listeners" element={<Listeners />} />
+              <Route path="/builder" element={<Builder />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/dashboard" />} />
+            </Routes>
+          </div>
         </div>
+        <StatusBar stats={stats} />
       </div>
-      <StatusBar stats={stats} />
-    </div>
+    </BrowserRouter>
   );
 }

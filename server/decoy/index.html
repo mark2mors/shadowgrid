@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowShopping — Premium Online Store</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>🛒</text></svg>">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--primary:#2563eb;--primary-dark:#1d4ed8;--bg:#ffffff;--text:#1e293b;--text-light:#64748b;--border:#e2e8f0;--surface:#f8fafc;--accent:#0ea5e9;--success:#22c55e;--warning:#f59e0b}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);line-height:1.6}
+a{text-decoration:none;color:inherit}
+
+/* NAV */
+.nav{background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.nav-inner{max-width:1280px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between}
+.nav-brand{font-size:22px;font-weight:800;color:var(--primary);letter-spacing:-0.5px}
+.nav-brand span{color:var(--accent)}
+.nav-links{display:flex;gap:32px;align-items:center}
+.nav-links a{font-size:14px;font-weight:500;color:var(--text-light);transition:color .2s}
+.nav-links a:hover{color:var(--primary)}
+.nav-actions{display:flex;gap:16px;align-items:center}
+.nav-search{padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;width:220px;outline:none;background:var(--surface)}
+.nav-search:focus{border-color:var(--primary)}
+.nav-cart{position:relative;font-size:20px;cursor:pointer}
+.cart-count{position:absolute;top:-6px;right:-8px;background:var(--primary);color:#fff;font-size:10px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700}
+
+/* HERO */
+.hero{background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 50%,#bfdbfe 100%);padding:80px 24px}
+.hero-inner{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+.hero h1{font-size:48px;font-weight:800;line-height:1.1;color:var(--text);margin-bottom:16px}
+.hero h1 span{color:var(--primary)}
+.hero p{font-size:18px;color:var(--text-light);margin-bottom:32px;max-width:480px}
+.hero-cta{display:flex;gap:12px}
+.btn{padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;border:none;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark);transform:translateY(-1px)}
+.btn-outline{background:transparent;border:2px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--primary);color:var(--primary)}
+.hero-img{display:flex;justify-content:center}
+.hero-visual{width:400px;height:320px;background:linear-gradient(145deg,#fff,#e0e7ff);border-radius:20px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:120px;box-shadow:0 20px 60px rgba(37,99,235,0.1)}
+
+/* FEATURES */
+.features{padding:64px 24px;background:var(--surface)}
+.features-inner{max-width:1280px;margin:0 auto}
+.section-title{text-align:center;font-size:32px;font-weight:700;margin-bottom:8px}
+.section-sub{text-align:center;color:var(--text-light);font-size:16px;margin-bottom:48px}
+.features-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+.feature-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:28px;text-align:center;transition:transform .2s,box-shadow .2s}
+.feature-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,0.08)}
+.feature-icon{font-size:36px;margin-bottom:16px}
+.feature-card h3{font-size:16px;font-weight:600;margin-bottom:8px}
+.feature-card p{font-size:13px;color:var(--text-light)}
+
+/* PRODUCTS */
+.products{padding:64px 24px}
+.products-inner{max-width:1280px;margin:0 auto}
+.product-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+.product-card{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:transform .2s,box-shadow .2s}
+.product-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,0.08)}
+.product-img{height:200px;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:64px}
+.product-info{padding:16px}
+.product-info h4{font-size:14px;font-weight:600;margin-bottom:4px}
+.product-info .price{font-size:18px;font-weight:700;color:var(--primary);margin-bottom:8px}
+.product-info .price .original{font-size:13px;color:var(--text-light);text-decoration:line-through;margin-left:8px;font-weight:400}
+.product-rating{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--warning);margin-bottom:12px}
+.product-rating span{color:var(--text-light)}
+.btn-add{width:100%;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s}
+.btn-add:hover{background:var(--primary-dark)}
+
+/* DEALS */
+.deals{padding:48px 24px;background:linear-gradient(135deg,#1e293b,#334155)}
+.deals-inner{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+.deals h2{color:#fff;font-size:28px;font-weight:700}
+.deals p{color:rgba(255,255,255,0.7);font-size:14px;margin-top:8px}
+.deals .timer{display:flex;gap:12px;align-items:center}
+.timer-box{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px 16px;text-align:center;min-width:60px}
+.timer-num{font-size:24px;font-weight:700;color:#fff}
+.timer-label{font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1px}
+
+/* NEWSLETTER */
+.newsletter{padding:64px 24px;background:var(--surface);text-align:center}
+.newsletter-inner{max-width:600px;margin:0 auto}
+.newsletter h2{font-size:28px;font-weight:700;margin-bottom:8px}
+.newsletter p{color:var(--text-light);margin-bottom:24px}
+.newsletter-form{display:flex;gap:8px}
+.newsletter-form input{flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none}
+.newsletter-form input:focus{border-color:var(--primary)}
+
+/* FOOTER */
+.footer{background:#0f172a;color:rgba(255,255,255,0.6);padding:48px 24px 24px}
+.footer-inner{max-width:1280px;margin:0 auto}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:48px;margin-bottom:40px}
+.footer-brand{font-size:20px;font-weight:800;color:#fff;margin-bottom:12px}
+.footer-brand span{color:var(--accent)}
+.footer-desc{font-size:13px;line-height:1.8;margin-bottom:16px}
+.footer-social{display:flex;gap:12px}
+.footer-social a{width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;transition:background .2s}
+.footer-social a:hover{background:var(--primary)}
+.footer h4{color:#fff;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px}
+.footer ul{list-style:none}
+.footer li{margin-bottom:8px}
+.footer li a{font-size:13px;transition:color .2s}
+.footer li a:hover{color:#fff}
+.footer-bottom{border-top:1px solid rgba(255,255,255,0.1);padding-top:24px;display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.footer-pay{display:flex;gap:8px}
+.footer-pay span{background:rgba(255,255,255,0.08);padding:4px 10px;border-radius:4px;font-size:11px}
+
+/* RESPONSIVE */
+@media(max-width:1024px){
+  .hero-inner,.features-grid,.product-grid{grid-template-columns:repeat(2,1fr)}
+  .footer-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:640px){
+  .hero-inner,.features-grid,.product-grid,.footer-grid{grid-template-columns:1fr}
+  .nav-links,.nav-search{display:none}
+  .hero h1{font-size:32px}
+  .deals-inner{flex-direction:column;text-align:center;gap:24px}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">Flow<span>Shopping</span></div>
+    <div class="nav-links">
+      <a href="#">Home</a>
+      <a href="#">Shop</a>
+      <a href="#">Categories</a>
+      <a href="#">Deals</a>
+      <a href="#">About</a>
+      <a href="#">Contact</a>
+    </div>
+    <div class="nav-actions">
+      <input type="text" class="nav-search" placeholder="Search products...">
+      <div class="nav-cart">🛒<span class="cart-count">3</span></div>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <h1>Discover <span>Premium</span> Products For Every Lifestyle</h1>
+      <p>Shop the latest electronics, fashion, and home essentials with free shipping on orders over $49. New arrivals added daily.</p>
+      <div class="hero-cta">
+        <button class="btn btn-primary">🛍 Shop Now</button>
+        <button class="btn btn-outline">View Categories</button>
+      </div>
+    </div>
+    <div class="hero-img">
+      <div class="hero-visual">🛍️</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features">
+  <div class="features-inner">
+    <h2 class="section-title">Why Shop With Us</h2>
+    <p class="section-sub">Trusted by over 2 million customers worldwide</p>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">🚚</div><h3>Free Shipping</h3><p>Free delivery on all orders over $49. Fast 2-3 day express available.</p></div>
+      <div class="feature-card"><div class="feature-icon">🔒</div><h3>Secure Payment</h3><p>256-bit SSL encryption. All major credit cards and PayPal accepted.</p></div>
+      <div class="feature-card"><div class="feature-icon">↩️</div><h3>Easy Returns</h3><p>30-day hassle-free return policy. No questions asked.</p></div>
+      <div class="feature-card"><div class="feature-icon">💬</div><h3>24/7 Support</h3><p>Live chat, email, and phone support available around the clock.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRODUCTS -->
+<section class="products">
+  <div class="products-inner">
+    <h2 class="section-title">Trending Products</h2>
+    <p class="section-sub">Most popular items this week</p>
+    <div class="product-grid">
+      <div class="product-card">
+        <div class="product-img">🎧</div>
+        <div class="product-info">
+          <h4>Pro Wireless Headphones</h4>
+          <div class="price">$89.99 <span class="original">$129.99</span></div>
+          <div class="product-rating">★★★★★ <span>(2,847)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">⌚</div>
+        <div class="product-info">
+          <h4>SmartFit Watch Series 5</h4>
+          <div class="price">$249.00 <span class="original">$349.00</span></div>
+          <div class="product-rating">★★★★☆ <span>(1,203)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">📱</div>
+        <div class="product-info">
+          <h4>UltraSlim Tablet 12"</h4>
+          <div class="price">$449.00</div>
+          <div class="product-rating">★★★★★ <span>(956)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">🔌</div>
+        <div class="product-info">
+          <h4>PowerBank 20000mAh</h4>
+          <div class="price">$34.99 <span class="original">$54.99</span></div>
+          <div class="product-rating">★★★★☆ <span>(4,521)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">👟</div>
+        <div class="product-info">
+          <h4>AeroRun Sport Sneakers</h4>
+          <div class="price">$79.00 <span class="original">$110.00</span></div>
+          <div class="product-rating">★★★★★ <span>(3,112)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">🎒</div>
+        <div class="product-info">
+          <h4>Urban Travel Backpack</h4>
+          <div class="price">$59.99</div>
+          <div class="product-rating">★★★★☆ <span>(876)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">💡</div>
+        <div class="product-info">
+          <h4>Smart LED Desk Lamp</h4>
+          <div class="price">$42.00 <span class="original">$65.00</span></div>
+          <div class="product-rating">★★★★★ <span>(1,654)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+      <div class="product-card">
+        <div class="product-img">🎮</div>
+        <div class="product-info">
+          <h4>ProGrip Controller</h4>
+          <div class="price">$64.99</div>
+          <div class="product-rating">★★★★☆ <span>(2,089)</span></div>
+          <button class="btn-add">Add to Cart</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEALS BANNER -->
+<section class="deals">
+  <div class="deals-inner">
+    <div>
+      <h2>⚡ Black Friday Sale — Up to 60% Off</h2>
+      <p>Limited time offer. Don't miss out on incredible savings.</p>
+    </div>
+    <div class="timer">
+      <div class="timer-box"><div class="timer-num">02</div><div class="timer-label">Days</div></div>
+      <div class="timer-box"><div class="timer-num">14</div><div class="timer-label">Hours</div></div>
+      <div class="timer-box"><div class="timer-num">37</div><div class="timer-label">Mins</div></div>
+      <div class="timer-box"><div class="timer-num">52</div><div class="timer-label">Secs</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- NEWSLETTER -->
+<section class="newsletter">
+  <div class="newsletter-inner">
+    <h2>Stay in the Loop</h2>
+    <p>Subscribe to our newsletter for exclusive deals, new arrivals, and style tips delivered straight to your inbox.</p>
+    <form class="newsletter-form" onsubmit="event.preventDefault()">
+      <input type="email" placeholder="Enter your email address">
+      <button class="btn btn-primary">Subscribe</button>
+    </form>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">Flow<span>Shopping</span></div>
+        <p class="footer-desc">Your one-stop destination for premium products at unbeatable prices. Founded in 2019, we serve customers in over 40 countries.</p>
+        <div class="footer-social">
+          <a href="#">📘</a><a href="#">🐦</a><a href="#">📸</a><a href="#">▶️</a>
+        </div>
+      </div>
+      <div>
+        <h4>Shop</h4>
+        <ul>
+          <li><a href="#">Electronics</a></li>
+          <li><a href="#">Fashion</a></li>
+          <li><a href="#">Home & Garden</a></li>
+          <li><a href="#">Sports</a></li>
+          <li><a href="#">Beauty</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#">About Us</a></li>
+          <li><a href="#">Careers</a></li>
+          <li><a href="#">Press</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">Affiliate Program</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Support</h4>
+        <ul>
+          <li><a href="#">Help Center</a></li>
+          <li><a href="#">Shipping Info</a></li>
+          <li><a href="#">Returns & Exchanges</a></li>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 FlowShopping Inc. All rights reserved.</span>
+      <div class="footer-pay">
+        <span>Visa</span><span>Mastercard</span><span>Amex</span><span>PayPal</span><span>Apple Pay</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Countdown timer
+(function(){
+  const boxes = document.querySelectorAll('.timer-num');
+  if(boxes.length<4) return;
+  let total = 2*86400 + 14*3600 + 37*60 + 52;
+  setInterval(()=>{
+    if(total<=0)return;
+    total--;
+    const d=Math.floor(total/86400), h=Math.floor((total%86400)/3600), m=Math.floor((total%3600)/60), s=total%60;
+    boxes[0].textContent=String(d).padStart(2,'0');
+    boxes[1].textContent=String(h).padStart(2,'0');
+    boxes[2].textContent=String(m).padStart(2,'0');
+    boxes[3].textContent=String(s).padStart(2,'0');
+  },1000);
+})();
+</script>
+</body>
+</html>

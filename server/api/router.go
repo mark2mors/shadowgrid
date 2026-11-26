@@ -3,7 +3,6 @@ package api
 import (
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -135,8 +134,33 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/settings", s.handleUpdateSettings)
 	})
 
-	// Serve static React panel
-	fileServer(r, "/", http.Dir(s.Config.StaticDir))
+	// Serve decoy website at exact root path
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "decoy/index.html")
+	})
+
+	// Serve React SPA for all panel routes
+	panelRoutes := []string{"/login", "/dashboard", "/agents", "/credentials", "/files", "/listeners", "/builder", "/settings"}
+	for _, route := range panelRoutes {
+		route := route // capture loop variable
+		r.Get(route, func(w http.ResponseWriter, req *http.Request) {
+			http.ServeFile(w, req, s.Config.StaticDir+"/index.html")
+		})
+	}
+
+	// Serve static assets (JS, CSS, images)
+	r.Handle("/assets/*", http.StripPrefix("/", http.FileServer(http.Dir(s.Config.StaticDir))))
+
+	// Favicon and other static files
+	r.Get("/favicon.ico", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, s.Config.StaticDir+"/favicon.ico")
+	})
+	r.Get("/favicon-32.png", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, s.Config.StaticDir+"/favicon-32.png")
+	})
+	r.Get("/logo-192.png", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, s.Config.StaticDir+"/logo-192.png")
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -152,24 +176,4 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func fileServer(r chi.Router, path string, root http.FileSystem) {
-	if path != "/" && path[len(path)-1] != '/' {
-		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
-		path += "/"
-	}
-	path += "*"
-	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
-		rctx := chi.RouteContext(r.Context())
-		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
-		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
-		// Try to serve the file; if not found, serve index.html for SPA routing
-		f, err := root.Open(strings.TrimPrefix(r.URL.Path, pathPrefix))
-		if err != nil {
-			// Serve index.html for SPA
-			r.URL.Path = "/"
-		} else {
-			f.Close()
-		}
-		fs.ServeHTTP(w, r)
-	})
-}
+

