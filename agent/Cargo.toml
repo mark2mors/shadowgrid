@@ -24,7 +24,7 @@ nix = { version = "0.28", features = ["process", "signal", "fs", "net"] }
 
 [features]
 default = ["all_modules"]
-all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis"]
+all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis", "self_update"]
 terminal = []
 storage = []
 task_viewer = []
@@ -41,6 +41,7 @@ network_scan = []
 clipboard = []
 evasion = []
 anti_analysis = []
+self_update = []
 
 [profile.release]
 opt-level = "z"

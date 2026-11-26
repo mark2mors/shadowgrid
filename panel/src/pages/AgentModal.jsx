@@ -479,6 +479,9 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
   const [killDate, setKillDate] = useState('2027-01-01');
   const [workStart, setWorkStart] = useState('08:00');
   const [workEnd, setWorkEnd] = useState('18:00');
+  const [updateUrl, setUpdateUrl] = useState('');
+  const [updateHash, setUpdateHash] = useState('');
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
 
   const updateConfig = () => {
     api.createTask(agentId, 'config_update', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
@@ -488,6 +491,14 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
     if (confirm('CONFIRM SELF DESTRUCT? This will terminate the agent and remove all persistence.')) {
       api.createTask(agentId, 'self_destruct', {});
     }
+  };
+
+  const sendUpdate = () => {
+    if (!updateUrl) return;
+    api.createTask(agentId, 'self_update', { url: updateUrl, hash: updateHash });
+    setShowUpdateDialog(false);
+    setUpdateUrl('');
+    setUpdateHash('');
   };
 
   return (
@@ -522,7 +533,28 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
         <button className="btn btn-green" onClick={updateConfig}>UPDATE CONFIG</button>
         <button className="btn" onClick={() => api.createTask(agentId, 'reconnect', {})}>RECONNECT</button>
+        <button className="btn" style={{ marginLeft: 8 }} onClick={() => setShowUpdateDialog(!showUpdateDialog)}>UPDATE AGENT</button>
       </div>
+
+      {showUpdateDialog && (
+        <div style={{ marginTop: 16, padding: 16, border: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-sec)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1.4px' }}>
+            Self-Update Agent Binary
+          </div>
+          <div className="form-group">
+            <label className="form-label">Binary URL</label>
+            <input type="text" className="form-input" value={updateUrl} onChange={e => setUpdateUrl(e.target.value)} placeholder="https://example.com/agent.exe" />
+          </div>
+          <div className="form-group" style={{ marginTop: 8 }}>
+            <label className="form-label">SHA256 Hash (optional)</label>
+            <input type="text" className="form-input" value={updateHash} onChange={e => setUpdateHash(e.target.value)} placeholder="Leave empty to skip verification" style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button className="btn btn-green" onClick={sendUpdate} disabled={!updateUrl}>SEND UPDATE</button>
+            <button className="btn" onClick={() => setShowUpdateDialog(false)}>CANCEL</button>
+          </div>
+        </div>
+      )}
       <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
         <button className="btn btn-red" style={{ fontSize: 11, padding: '12px 24px' }} onClick={selfDestruct}>SELF DESTRUCT</button>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-disabled)', marginTop: 8 }}>

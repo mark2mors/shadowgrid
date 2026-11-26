@@ -82,55 +82,59 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract profile fields
-	getString := func(m map[string]interface{}, key string) string {
-		if v, ok := m[key]; ok {
-			if s, ok := v.(string); ok {
-				return s
+	// Only upsert full profile when the agent sends one; otherwise just update last_seen
+	if payload.Profile != nil && len(payload.Profile) > 0 {
+		getString := func(m map[string]interface{}, key string) string {
+			if v, ok := m[key]; ok {
+				if s, ok := v.(string); ok {
+					return s
+				}
 			}
+			return ""
 		}
-		return ""
-	}
-	getFloat := func(m map[string]interface{}, key string) float64 {
-		if v, ok := m[key]; ok {
-			if f, ok := v.(float64); ok {
-				return f
+		getFloat := func(m map[string]interface{}, key string) float64 {
+			if v, ok := m[key]; ok {
+				if f, ok := v.(float64); ok {
+					return f
+				}
 			}
+			return 0
 		}
-		return 0
-	}
-	getBool := func(m map[string]interface{}, key string) bool {
-		if v, ok := m[key]; ok {
-			if b, ok := v.(bool); ok {
-				return b
+		getBool := func(m map[string]interface{}, key string) bool {
+			if v, ok := m[key]; ok {
+				if b, ok := v.(bool); ok {
+					return b
+				}
 			}
+			return false
 		}
-		return false
-	}
 
-	agent := &models.Agent{
-		ID:           payload.ID,
-		Hostname:     getString(payload.Profile, "hostname"),
-		Username:     getString(payload.Profile, "username"),
-		OS:           getString(payload.Profile, "os"),
-		Arch:         getString(payload.Profile, "arch"),
-		ProcessName:  getString(payload.Profile, "process_name"),
-		PID:          int(getFloat(payload.Profile, "pid")),
-		IPInternal:   getString(payload.Profile, "ip_internal"),
-		IPExternal:   r.RemoteAddr,
-		Country:      getString(payload.Profile, "country"),
-		DomainName:   getString(payload.Profile, "domain"),
-		IsAdmin:      getBool(payload.Profile, "is_admin"),
-		SleepSeconds: int(getFloat(payload.Profile, "sleep_seconds")),
-		JitterPct:    int(getFloat(payload.Profile, "jitter_percent")),
-		FirstSeen:    time.Now(),
-		LastSeen:     time.Now(),
-		Status:       "active",
-	}
+		agent := &models.Agent{
+			ID:           payload.ID,
+			Hostname:     getString(payload.Profile, "hostname"),
+			Username:     getString(payload.Profile, "username"),
+			OS:           getString(payload.Profile, "os"),
+			Arch:         getString(payload.Profile, "arch"),
+			ProcessName:  getString(payload.Profile, "process_name"),
+			PID:          int(getFloat(payload.Profile, "pid")),
+			IPInternal:   getString(payload.Profile, "ip_internal"),
+			IPExternal:   r.RemoteAddr,
+			Country:      getString(payload.Profile, "country"),
+			DomainName:   getString(payload.Profile, "domain"),
+			IsAdmin:      getBool(payload.Profile, "is_admin"),
+			SleepSeconds: int(getFloat(payload.Profile, "sleep_seconds")),
+			JitterPct:    int(getFloat(payload.Profile, "jitter_percent")),
+			FirstSeen:    time.Now(),
+			LastSeen:     time.Now(),
+			Status:       "active",
+		}
 
-	// Upsert agent
-	h.DB.UpsertAgent(agent)
-	h.DB.UpdateAgentLastSeen(payload.ID)
+		h.DB.UpsertAgent(agent)
+	} else {
+		// No profile data — just register the agent ID if new, and update last_seen
+		h.DB.EnsureAgent(payload.ID, r.RemoteAddr)
+		h.DB.UpdateAgentLastSeen(payload.ID)
+	}
 
 	// Store results
 	for _, res := range payload.Results {

@@ -28,6 +28,8 @@ pub mod cleanup;
 pub mod network_scan;
 #[cfg(feature = "clipboard")]
 pub mod clipboard;
+#[cfg(feature = "self_update")]
+pub mod self_update;
 pub mod host_profile;
 
 use serde::{Deserialize, Serialize};
@@ -164,6 +166,9 @@ fn dispatch_task_inner(task_id: i64, task_type: &str, args: &serde_json::Value) 
 
         #[cfg(feature = "clipboard")]
         "clipboard_read" => clipboard::read(task_id, args),
+
+        #[cfg(feature = "self_update")]
+        "self_update" => self_update::run(task_id, args),
 
         _ => TaskResult::error(task_id, format!("unknown task type: {}", task_type)),
     }

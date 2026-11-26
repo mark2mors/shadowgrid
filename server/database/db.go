@@ -235,6 +235,13 @@ func (d *DB) UpsertAgent(a *models.Agent) error {
 	return err
 }
 
+// EnsureAgent inserts a minimal agent record if it doesn't exist yet (first check-in without profile).
+func (d *DB) EnsureAgent(id string, ipExternal string) error {
+	_, err := d.Exec(`INSERT INTO agents (id, ip_external, first_seen, last_seen, status) VALUES (?, ?, ?, ?, 'active')
+		ON CONFLICT(id) DO NOTHING`, id, ipExternal, time.Now(), time.Now())
+	return err
+}
+
 func (d *DB) UpdateAgentLastSeen(id string) error {
 	_, err := d.Exec("UPDATE agents SET last_seen=?, status='active' WHERE id=?", time.Now(), id)
 	return err
