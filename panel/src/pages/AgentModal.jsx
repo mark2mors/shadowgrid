@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
 import Terminal from '../components/Terminal';
+import ConfirmModal from '../components/ConfirmModal';
 
 function countryFlag(code) {
   if (!code || code.length !== 2) return '';
@@ -490,15 +491,15 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
   const [updateUrl, setUpdateUrl] = useState('');
   const [updateHash, setUpdateHash] = useState('');
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [showSelfDestruct, setShowSelfDestruct] = useState(false);
 
   const updateConfig = () => {
     api.createTask(agentId, 'config_store_write', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
   };
 
-  const selfDestruct = () => {
-    if (confirm('CONFIRM SELF DESTRUCT? This will terminate the agent and remove all persistence.')) {
-      api.createTask(agentId, 'cleanup', {});
-    }
+  const selfDestructConfirm = () => {
+    api.createTask(agentId, 'cleanup', {});
+    setShowSelfDestruct(false);
   };
 
   const sendUpdate = () => {
@@ -564,11 +565,26 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
         </div>
       )}
       <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <button className="btn btn-red" style={{ fontSize: 11, padding: '12px 24px' }} onClick={selfDestruct}>SELF DESTRUCT</button>
+        <button className="btn btn-red" style={{ fontSize: 11, padding: '12px 24px' }} onClick={() => setShowSelfDestruct(true)}>SELF DESTRUCT</button>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-disabled)', marginTop: 8 }}>
           Removes all persistence, clears traces, terminates agent process.
         </div>
       </div>
+
+      <ConfirmModal
+        open={showSelfDestruct}
+        title="CONFIRM SELF DESTRUCT"
+        message="This will terminate the agent process, remove all persistence mechanisms, and clear all traces from the target system. This action is IRREVERSIBLE."
+        detail={
+          <>
+            <div><span style={{ color: 'var(--text-muted)' }}>AGENT: </span><span style={{ color: 'var(--green)' }}>{agentId}</span></div>
+            <div><span style={{ color: 'var(--red)' }}>All persistence will be removed. The agent will not reconnect.</span></div>
+          </>
+        }
+        confirmLabel="SELF DESTRUCT"
+        onConfirm={selfDestructConfirm}
+        onCancel={() => setShowSelfDestruct(false)}
+      />
     </div>
   );
 }

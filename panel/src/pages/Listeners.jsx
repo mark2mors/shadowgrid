@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Listeners() {
   const [listeners, setListeners] = useState([]);
   const [form, setForm] = useState({ name: '', type: 'https', bind_host: '0.0.0.0', bind_port: 443, domain: '' });
   const [showForm, setShowForm] = useState(false);
+  const [stopTarget, setStopTarget] = useState(null);
 
   const load = () => api.getListeners().then(setListeners).catch(() => {});
   useEffect(load, []);
@@ -17,7 +19,14 @@ export default function Listeners() {
   };
 
   const start = async (id) => { await api.startListener(id); load(); };
-  const stop = async (id) => { await api.stopListener(id); load(); };
+
+  const handleStopConfirm = async () => {
+    if (stopTarget) {
+      await api.stopListener(stopTarget.id);
+      setStopTarget(null);
+      load();
+    }
+  };
 
   return (
     <div>
@@ -47,7 +56,7 @@ export default function Listeners() {
                 <td>
                   <div className="action-btns">
                     {l.status === 'running' ? (
-                      <button className="btn btn-sm btn-red" onClick={() => stop(l.id)}>STOP</button>
+                      <button className="btn btn-sm btn-red" onClick={() => setStopTarget(l)}>STOP</button>
                     ) : (
                       <button className="btn btn-sm btn-green" onClick={() => start(l.id)}>START</button>
                     )}
@@ -102,6 +111,23 @@ export default function Listeners() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!stopTarget}
+        title="CONFIRM STOP LISTENER"
+        message="Stopping this listener will disconnect all agents using it. Active sessions will be interrupted."
+        detail={stopTarget ? (
+          <>
+            <div><span style={{ color: 'var(--text-muted)' }}>NAME: </span><span style={{ color: 'var(--green)' }}>{stopTarget.name}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>TYPE: </span><span style={{ color: 'var(--text-sec)' }}>{stopTarget.type?.toUpperCase()}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>BIND: </span><span style={{ color: 'var(--text-sec)' }}>{stopTarget.bind_host}:{stopTarget.bind_port}</span></div>
+          </>
+        ) : null}
+        confirmLabel="STOP LISTENER"
+        variant="yellow"
+        onConfirm={handleStopConfirm}
+        onCancel={() => setStopTarget(null)}
+      />
     </div>
   );
 }

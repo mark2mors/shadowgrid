@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import AgentModal from './AgentModal';
+import ConfirmModal from '../components/ConfirmModal';
 
 function countryFlag(code) {
   if (!code || code.length !== 2) return '';
@@ -14,6 +15,7 @@ export default function Agents() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [killTarget, setKillTarget] = useState(null);
 
   const loadAgents = useCallback(() => {
     let params = '';
@@ -43,10 +45,15 @@ export default function Agents() {
     return 'green';
   };
 
-  const handleDelete = async (e, id) => {
+  const handleKillClick = (e, agent) => {
     e.stopPropagation();
-    if (confirm('Remove agent ' + id + '?')) {
-      await api.deleteAgent(id);
+    setKillTarget(agent);
+  };
+
+  const handleKillConfirm = async () => {
+    if (killTarget) {
+      await api.deleteAgent(killTarget.id);
+      setKillTarget(null);
       loadAgents();
     }
   };
@@ -95,7 +102,7 @@ export default function Agents() {
                   <div className="action-btns">
                     {a.is_admin && <span className="badge-admin">ADMIN</span>}
                     <button className="btn btn-sm" onClick={e => { e.stopPropagation(); setSelectedAgent(a); }}>INTERACT</button>
-                    <button className="btn btn-sm btn-red" onClick={e => handleDelete(e, a.id)}>KILL</button>
+                    <button className="btn btn-sm btn-red" onClick={e => handleKillClick(e, a)}>KILL</button>
                   </div>
                 </td>
               </tr>
@@ -107,6 +114,22 @@ export default function Agents() {
       {selectedAgent && (
         <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
       )}
+
+      <ConfirmModal
+        open={!!killTarget}
+        title="CONFIRM KILL"
+        message="This will remove the agent record and terminate communication. This action cannot be undone."
+        detail={killTarget ? (
+          <>
+            <div><span style={{ color: 'var(--text-muted)' }}>AGENT ID: </span><span style={{ color: 'var(--green)' }}>{killTarget.id?.substring(0, 10)}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>HOSTNAME: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget.hostname || '—'}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>USER: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget.username || '—'}</span></div>
+          </>
+        ) : null}
+        confirmLabel="KILL AGENT"
+        onConfirm={handleKillConfirm}
+        onCancel={() => setKillTarget(null)}
+      />
     </div>
   );
 }
