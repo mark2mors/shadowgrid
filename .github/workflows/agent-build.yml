@@ -1,0 +1,42 @@
+# ShadowGrid Agent Builder — Phase 2
+# This workflow will compile the Rust agent with selected modules
+name: Build Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'C2 Server URL'
+        required: true
+      target_os:
+        description: 'Target OS (windows/linux/macos)'
+        required: true
+        default: 'windows'
+      target_arch:
+        description: 'Target Architecture (x64/x86/arm64)'
+        required: true
+        default: 'x64'
+      output_format:
+        description: 'Output Format (exe/dll/shellcode)'
+        required: true
+        default: 'exe'
+      modules:
+        description: 'Comma-separated module list'
+        required: true
+      encryption_key:
+        description: 'AES-256 Key (base64)'
+        required: true
+      sleep:
+        description: 'Sleep seconds'
+        default: '5'
+      jitter:
+        description: 'Jitter percent'
+        default: '20'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Agent builder will be implemented in Phase 2"

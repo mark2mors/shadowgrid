@@ -1,0 +1,27 @@
+# Binaries
+server/shadowgrid
+server/shadowgrid.exe
+*.db
+
+# Go
+server/vendor/
+
+# Node
+panel/node_modules/
+panel/dist/
+
+# React build output (served by Go)
+# server/static/ is tracked since it's the build output
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data directory
+server/data/
