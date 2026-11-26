@@ -93,6 +93,7 @@ jobs:
 
       - name: Build agent
         working-directory: agent
+        shell: bash
         env:
           SG_SERVER_URL: ${{ inputs.server_url }}
           SG_AES_KEY: ${{ inputs.aes_key }}
