@@ -88,6 +88,7 @@ func (s *Server) setupRoutes() {
 
 		// Agents
 		r.Get("/api/agents", s.handleGetAgents)
+		r.Get("/api/agents/countries", s.handleGetAgentsByCountry)
 		r.Get("/api/agents/{id}", s.handleGetAgent)
 		r.Delete("/api/agents/{id}", s.handleDeleteAgent)
 		r.Post("/api/agents/{id}/tasks", s.handleCreateTask)

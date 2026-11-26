@@ -22,6 +22,18 @@ func (s *Server) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, agents)
 }
 
+func (s *Server) handleGetAgentsByCountry(w http.ResponseWriter, r *http.Request) {
+	countries, err := s.DB.GetAgentsByCountry()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if countries == nil {
+		countries = []map[string]interface{}{}
+	}
+	jsonResponse(w, countries)
+}
+
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	agent, err := s.DB.GetAgent(id)

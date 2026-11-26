@@ -60,6 +60,9 @@ func (d *DB) migrate() error {
 			ip_internal TEXT DEFAULT '',
 			ip_external TEXT DEFAULT '',
 			country TEXT DEFAULT '',
+			city TEXT DEFAULT '',
+			isp TEXT DEFAULT '',
+			asn TEXT DEFAULT '',
 			domain_name TEXT DEFAULT '',
 			is_admin INTEGER DEFAULT 0,
 			sleep_seconds INTEGER DEFAULT 5,
@@ -141,6 +144,15 @@ func (d *DB) migrate() error {
 			return err
 		}
 	}
+	// Add columns for existing DBs (ignore errors if columns already exist)
+	alterStmts := []string{
+		`ALTER TABLE agents ADD COLUMN city TEXT DEFAULT ''`,
+		`ALTER TABLE agents ADD COLUMN isp TEXT DEFAULT ''`,
+		`ALTER TABLE agents ADD COLUMN asn TEXT DEFAULT ''`,
+	}
+	for _, s := range alterStmts {
+		d.Exec(s) // ignore "duplicate column" errors
+	}
 	return nil
 }
 
@@ -171,7 +183,7 @@ func (d *DB) GetOperatorByUsername(username string) (*models.Operator, error) {
 // === AGENTS ===
 
 func (d *DB) GetAgents(status, search string) ([]models.Agent, error) {
-	query := "SELECT id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status FROM agents WHERE 1=1"
+	query := "SELECT id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,city,isp,asn,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status FROM agents WHERE 1=1"
 	args := []interface{}{}
 	if status != "" && status != "all" {
 		query += " AND status=?"
@@ -193,7 +205,7 @@ func (d *DB) GetAgents(status, search string) ([]models.Agent, error) {
 		var a models.Agent
 		var isAdmin int
 		err := rows.Scan(&a.ID, &a.Hostname, &a.Username, &a.OS, &a.Arch, &a.ProcessName, &a.PID,
-			&a.IPInternal, &a.IPExternal, &a.Country, &a.DomainName, &isAdmin,
+			&a.IPInternal, &a.IPExternal, &a.Country, &a.City, &a.ISP, &a.ASN, &a.DomainName, &isAdmin,
 			&a.SleepSeconds, &a.JitterPct, &a.ListenerID, &a.FirstSeen, &a.LastSeen, &a.Status)
 		if err != nil {
 			continue
@@ -208,9 +220,9 @@ func (d *DB) GetAgent(id string) (*models.Agent, error) {
 	a := &models.Agent{}
 	var isAdmin int
 	err := d.QueryRow(
-		"SELECT id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status FROM agents WHERE id=?", id,
+		"SELECT id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,city,isp,asn,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status FROM agents WHERE id=?", id,
 	).Scan(&a.ID, &a.Hostname, &a.Username, &a.OS, &a.Arch, &a.ProcessName, &a.PID,
-		&a.IPInternal, &a.IPExternal, &a.Country, &a.DomainName, &isAdmin,
+		&a.IPInternal, &a.IPExternal, &a.Country, &a.City, &a.ISP, &a.ASN, &a.DomainName, &isAdmin,
 		&a.SleepSeconds, &a.JitterPct, &a.ListenerID, &a.FirstSeen, &a.LastSeen, &a.Status)
 	if err != nil {
 		return nil, err
@@ -224,13 +236,13 @@ func (d *DB) UpsertAgent(a *models.Agent) error {
 	if a.IsAdmin {
 		isAdmin = 1
 	}
-	_, err := d.Exec(`INSERT INTO agents (id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := d.Exec(`INSERT INTO agents (id,hostname,username,os,arch,process_name,pid,ip_internal,ip_external,country,city,isp,asn,domain_name,is_admin,sleep_seconds,jitter_percent,listener_id,first_seen,last_seen,status)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET hostname=excluded.hostname,username=excluded.username,os=excluded.os,arch=excluded.arch,
 		process_name=excluded.process_name,pid=excluded.pid,ip_internal=excluded.ip_internal,ip_external=excluded.ip_external,
-		country=excluded.country,domain_name=excluded.domain_name,is_admin=excluded.is_admin,last_seen=excluded.last_seen,status='active'`,
+		country=excluded.country,city=excluded.city,isp=excluded.isp,asn=excluded.asn,domain_name=excluded.domain_name,is_admin=excluded.is_admin,last_seen=excluded.last_seen,status='active'`,
 		a.ID, a.Hostname, a.Username, a.OS, a.Arch, a.ProcessName, a.PID,
-		a.IPInternal, a.IPExternal, a.Country, a.DomainName, isAdmin,
+		a.IPInternal, a.IPExternal, a.Country, a.City, a.ISP, a.ASN, a.DomainName, isAdmin,
 		a.SleepSeconds, a.JitterPct, a.ListenerID, a.FirstSeen, time.Now(), a.Status)
 	return err
 }
@@ -482,6 +494,23 @@ func (d *DB) SetSetting(key, value string) error {
 }
 
 // === STATS ===
+
+// GetAgentsByCountry returns agent counts grouped by country code for dashboard display.
+func (d *DB) GetAgentsByCountry() ([]map[string]interface{}, error) {
+	rows, err := d.Query("SELECT country, COUNT(*) as cnt FROM agents WHERE country != '' AND status IN ('active','dormant') GROUP BY country ORDER BY cnt DESC LIMIT 10")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var country string
+		var cnt int
+		rows.Scan(&country, &cnt)
+		results = append(results, map[string]interface{}{"country": country, "count": cnt})
+	}
+	return results, nil
+}
 
 func (d *DB) GetStats() (map[string]int, error) {
 	stats := map[string]int{}

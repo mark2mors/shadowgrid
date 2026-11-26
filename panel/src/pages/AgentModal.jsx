@@ -3,6 +3,13 @@ import { api } from '../api';
 import Modal from '../components/Modal';
 import Terminal from '../components/Terminal';
 
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '';
+  return String.fromCodePoint(
+    ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
+  );
+}
+
 const TABS = ['Terminal','Storage','Tasks','Display','Input Log','Vault','Config Store','Services','Network','Settings'];
 
 export default function AgentModal({ agent, onClose }) {
@@ -51,7 +58,8 @@ export default function AgentModal({ agent, onClose }) {
           <span>{agent.os} • {agent.arch}</span>
         </div>
         <div className="modal-header-right">
-          <span>{agent.ip_external || agent.ip_internal} • {agent.country}</span>
+          <span>{countryFlag(agent.country)} {agent.country}{agent.city ? ' • ' + agent.city : ''}{agent.isp ? ' • ' + agent.isp : ''}</span>
+          <span>{agent.ip_external || agent.ip_internal}</span>
           <span style={{ color: `var(--${statusColor})` }}>Last seen: {timeSince(agent.last_seen)}</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>

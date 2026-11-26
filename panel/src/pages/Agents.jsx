@@ -2,6 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import AgentModal from './AgentModal';
 
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '';
+  return String.fromCodePoint(
+    ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
+  );
+}
+
 export default function Agents() {
   const [agents, setAgents] = useState([]);
   const [filter, setFilter] = useState('all');
@@ -65,21 +72,23 @@ export default function Agents() {
           <thead>
             <tr>
               <th>Status</th><th>ID</th><th>Hostname</th><th>User</th><th>OS</th>
-              <th>IP</th><th>Country</th><th>Last Seen</th><th>Sleep</th><th>Actions</th>
+              <th>IP</th><th>Country</th><th>City</th><th>ISP</th><th>Last Seen</th><th>Sleep</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {agents.length === 0 ? (
-              <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-disabled)', padding: 24 }}>No agents connected</td></tr>
+              <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--text-disabled)', padding: 24 }}>No agents connected</td></tr>
             ) : agents.map(a => (
               <tr key={a.id} className="agent-row" onClick={() => setSelectedAgent(a)}>
                 <td><span className={`status-dot ${statusColor(a)}`} /></td>
                 <td>{a.id?.substring(0, 10)}</td>
-                <td>{a.hostname}</td>
+                <td>{countryFlag(a.country)} {a.hostname}</td>
                 <td>{a.username}</td>
                 <td>{a.os}</td>
                 <td>{a.ip_external || a.ip_internal}</td>
-                <td>{a.country}</td>
+                <td>{countryFlag(a.country)} {a.country}</td>
+                <td>{a.city || '-'}</td>
+                <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.isp || '-'}</td>
                 <td style={{ color: `var(--${statusColor(a)})` }}>{timeSince(a.last_seen)}</td>
                 <td>{a.sleep_seconds}s</td>
                 <td>

@@ -42,6 +42,7 @@ export const api = {
 
   getAgents: (params = '') => request('GET', '/api/agents' + (params ? '?' + params : '')),
   getAgent: (id) => request('GET', '/api/agents/' + id),
+  getAgentsByCountry: () => request('GET', '/api/agents/countries'),
   deleteAgent: (id) => request('DELETE', '/api/agents/' + id),
   createTask: (agentId, taskType, args) => request('POST', '/api/agents/' + agentId + '/tasks', { task_type: taskType, args }),
   getAgentTasks: (id) => request('GET', '/api/agents/' + id + '/tasks'),

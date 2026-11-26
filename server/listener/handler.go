@@ -2,12 +2,16 @@ package listener
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"shadowgrid/config"
@@ -19,6 +23,111 @@ import (
 type Handler struct {
 	DB     *database.DB
 	Config *config.Config
+}
+
+// IP enrichment cache to avoid re-querying ip-api.com
+var (
+	ipCache   = map[string]*ipAPIResponse{}
+	ipCacheMu sync.Mutex
+)
+
+type ipAPIResponse struct {
+	Status      string `json:"status"`
+	Country     string `json:"country"`
+	CountryCode string `json:"countryCode"`
+	City        string `json:"city"`
+	ISP         string `json:"isp"`
+	AS          string `json:"as"`
+	Query       string `json:"query"`
+}
+
+// getRealIP extracts the real client IP from proxy headers
+func getRealIP(r *http.Request) string {
+	// Cloudflare
+	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
+		return ip
+	}
+	// X-Forwarded-For (first IP)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	// X-Real-IP
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	// Fallback
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// isPrivateIP returns true if the IP is a private/loopback/link-local address
+func isPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return true
+	}
+	privateRanges := []string{
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7",
+	}
+	for _, cidr := range privateRanges {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// enrichIP looks up geo/ISP data for an IP and updates the agent record.
+// Called in a goroutine; uses a cache to respect ip-api.com rate limits.
+func enrichIP(db *database.DB, agentID, ipStr string) {
+	if isPrivateIP(ipStr) {
+		return
+	}
+
+	// Check cache
+	ipCacheMu.Lock()
+	if cached, ok := ipCache[ipStr]; ok {
+		ipCacheMu.Unlock()
+		db.Exec("UPDATE agents SET country=?, city=?, isp=?, asn=? WHERE id=?",
+			cached.CountryCode, cached.City, cached.ISP, cached.AS, agentID)
+		return
+	}
+	ipCacheMu.Unlock()
+
+	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,country,countryCode,city,isp,as,query", ipStr)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[ENRICH] Failed to query ip-api.com for %s: %v", ipStr, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var data ipAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Printf("[ENRICH] Failed to decode ip-api.com response for %s: %v", ipStr, err)
+		return
+	}
+
+	if data.Status != "success" {
+		log.Printf("[ENRICH] ip-api.com returned status=%s for %s", data.Status, ipStr)
+		return
+	}
+
+	// Cache the result
+	ipCacheMu.Lock()
+	ipCache[ipStr] = &data
+	ipCacheMu.Unlock()
+
+	db.Exec("UPDATE agents SET country=?, city=?, isp=?, asn=? WHERE id=?",
+		data.CountryCode, data.City, data.ISP, data.AS, agentID)
+	log.Printf("[ENRICH] %s → %s %s %s %s", ipStr, data.CountryCode, data.City, data.ISP, data.AS)
 }
 
 type syncRequest struct {
@@ -118,7 +227,7 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 			ProcessName:  getString(payload.Profile, "process_name"),
 			PID:          int(getFloat(payload.Profile, "pid")),
 			IPInternal:   getString(payload.Profile, "ip_internal"),
-			IPExternal:   r.RemoteAddr,
+			IPExternal:   getRealIP(r),
 			Country:      getString(payload.Profile, "country"),
 			DomainName:   getString(payload.Profile, "domain"),
 			IsAdmin:      getBool(payload.Profile, "is_admin"),
@@ -130,9 +239,12 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.DB.UpsertAgent(agent)
+		// Enrich IP with geo data in background
+		go enrichIP(h.DB, agent.ID, agent.IPExternal)
 	} else {
 		// No profile data — just register the agent ID if new, and update last_seen
-		h.DB.EnsureAgent(payload.ID, r.RemoteAddr)
+		realIP := getRealIP(r)
+		h.DB.EnsureAgent(payload.ID, realIP)
 		h.DB.UpdateAgentLastSeen(payload.ID)
 	}
 

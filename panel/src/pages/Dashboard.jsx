@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '';
+  return String.fromCodePoint(
+    ...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
+  );
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState({});
   const [activity, setActivity] = useState([]);
+  const [countries, setCountries] = useState([]);
 
   useEffect(() => {
     api.getStats().then(setStats).catch(() => {});
     api.getActivity(20).then(setActivity).catch(() => {});
+    api.getAgentsByCountry().then(setCountries).catch(() => {});
     const interval = setInterval(() => {
       api.getStats().then(setStats).catch(() => {});
       api.getActivity(20).then(setActivity).catch(() => {});
+      api.getAgentsByCountry().then(setCountries).catch(() => {});
     }, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -62,7 +72,37 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* RECENT ACTIVITY */}
+        {/* AGENTS BY COUNTRY */}
+        <div className="panel">
+          <div className="panel-header">Agents by Country</div>
+          <div className="panel-body">
+            {(!countries || countries.length === 0) ? (
+              <div style={{ color: 'var(--text-disabled)', padding: 16, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                No geo data available yet
+              </div>
+            ) : (
+              <div style={{ padding: '8px 0' }}>
+                {countries.slice(0, 10).map((c, i) => {
+                  const maxCount = countries[0]?.count || 1;
+                  const pct = Math.max(5, (c.count / maxCount) * 100);
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      <span style={{ width: 32, textAlign: 'center', fontSize: 16 }}>{countryFlag(c.country)}</span>
+                      <span style={{ width: 28, color: 'var(--text-sec)' }}>{c.country}</span>
+                      <div style={{ flex: 1, height: 14, background: 'var(--surface)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: pct + '%', height: '100%', background: 'var(--green)', opacity: 0.7, borderRadius: 2 }} />
+                      </div>
+                      <span style={{ width: 32, textAlign: 'right', color: 'var(--green)' }}>{c.count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="two-col" style={{ marginTop: 16 }}>
         <div className="panel">
           <div className="panel-header">Recent Activity</div>
           <div className="panel-body">

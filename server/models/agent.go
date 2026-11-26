@@ -13,6 +13,9 @@ type Agent struct {
 	IPInternal   string    `json:"ip_internal"`
 	IPExternal   string    `json:"ip_external"`
 	Country      string    `json:"country"`
+	City         string    `json:"city"`
+	ISP          string    `json:"isp"`
+	ASN          string    `json:"asn"`
 	DomainName   string    `json:"domain_name"`
 	IsAdmin      bool      `json:"is_admin"`
 	SleepSeconds int       `json:"sleep_seconds"`
