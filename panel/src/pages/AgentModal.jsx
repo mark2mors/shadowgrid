@@ -82,7 +82,7 @@ export default function AgentModal({ agent, onClose }) {
         {tab === 1 && <StorageTab agentId={agent.id} />}
 
         {/* TAB 2: TASKS */}
-        {tab === 2 && <TasksTab tasks={tasks} />}
+        {tab === 2 && <TasksTab tasks={tasks} results={results} />}
 
         {/* TAB 3: DISPLAY */}
         {tab === 3 && <DisplayTab agentId={agent.id} />}
@@ -160,9 +160,15 @@ function StorageTab({ agentId }) {
 }
 
 /* ========== TASKS TAB ========== */
-function TasksTab({ tasks }) {
+function TasksTab({ tasks, results }) {
   const [filter, setFilter] = useState('all');
+  const [expandedTask, setExpandedTask] = useState(null);
   const filtered = filter === 'all' ? tasks : tasks.filter(t => t.status === filter);
+
+  const getOutput = (taskId) => {
+    const r = results?.find(r => r.task_id === taskId);
+    return r ? r.output : null;
+  };
 
   return (
     <div style={{ padding: 16 }}>
@@ -172,22 +178,62 @@ function TasksTab({ tasks }) {
         ))}
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Type</th><th>Args</th><th>Status</th><th>Created</th><th>Completed</th></tr></thead>
+        <thead><tr><th>ID</th><th>Type</th><th>Args</th><th>Status</th><th>Created</th><th>Output</th></tr></thead>
         <tbody>
           {filtered.length === 0 ? (
             <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No tasks</td></tr>
-          ) : filtered.map(t => (
-            <tr key={t.id}>
-              <td>TSK-{String(t.id).padStart(3,'0')}</td>
-              <td>{t.task_type}</td>
-              <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.args_json}</td>
-              <td style={{ color: t.status === 'completed' ? 'var(--green)' : t.status === 'failed' ? 'var(--red)' : t.status === 'pending' ? 'var(--yellow)' : 'var(--blue)' }}>
-                {t.status?.toUpperCase()}
-              </td>
-              <td>{t.created_at ? new Date(t.created_at).toLocaleTimeString() : '-'}</td>
-              <td>{t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : '-'}</td>
-            </tr>
-          ))}
+          ) : filtered.map(t => {
+            const output = getOutput(t.id);
+            const isExpanded = expandedTask === t.id;
+            return (
+              <React.Fragment key={t.id}>
+                <tr style={{ cursor: output ? 'pointer' : 'default' }} onClick={() => output && setExpandedTask(isExpanded ? null : t.id)}>
+                  <td>TSK-{String(t.id).padStart(3,'0')}</td>
+                  <td>{t.task_type}</td>
+                  <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.args_json}</td>
+                  <td style={{ color: t.status === 'completed' ? 'var(--green)' : t.status === 'failed' ? 'var(--red)' : t.status === 'pending' ? 'var(--yellow)' : 'var(--blue)' }}>
+                    {t.status?.toUpperCase()}
+                  </td>
+                  <td>{t.created_at ? new Date(t.created_at).toLocaleTimeString() : '-'}</td>
+                  <td>
+                    {output ? (
+                      <span style={{ color: 'var(--green)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                        {isExpanded ? '▼ COLLAPSE' : '▶ VIEW'}
+                      </span>
+                    ) : t.status === 'completed' ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>no output</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-disabled)', fontSize: 10 }}>waiting...</span>
+                    )}
+                  </td>
+                </tr>
+                {isExpanded && output && (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 0 }}>
+                      <pre style={{
+                        margin: 0,
+                        padding: 12,
+                        background: '#0d0f12',
+                        border: '1px solid var(--border)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11,
+                        color: 'var(--green)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                        maxHeight: 300,
+                        overflow: 'auto',
+                      }}>{(() => {
+                        try {
+                          const parsed = JSON.parse(output);
+                          return JSON.stringify(parsed, null, 2);
+                        } catch { return output; }
+                      })()}</pre>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
