@@ -53,7 +53,7 @@ export function LogoIcon({ size = 40 }) {
 
 export function LogoFull({ width = 200, height = 48, showTagline = false }) {
   return (
-    <svg viewBox="0 0 280 60" width={width} height={height} xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 300 60" width={width} height={height} xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="sg-grid-fade" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#00ff88" stopOpacity="1"/>
