@@ -219,7 +219,7 @@ export default function AgentModal({ agent, onClose }) {
       </div>
 
       {/* TAB CONTENT */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', WebkitOverflowScrolling: 'touch' }}>
         {tab === 'terminal' && <TerminalTab agent={agent} showToast={showToast} />}
         {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}

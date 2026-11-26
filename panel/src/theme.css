@@ -213,7 +213,7 @@ tr:hover td { background: var(--surface-hover); }
 }
 .modal-tab:hover { color: var(--text-sec); background: var(--surface-hover); }
 .modal-tab.active { color: var(--green); border-bottom-color: var(--green); }
-.modal-body { flex: 1; overflow-y: auto; }
+.modal-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 /* TERMINAL */
 .terminal {
