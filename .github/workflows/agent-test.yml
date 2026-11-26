@@ -40,10 +40,20 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Starting agent..."
-          $proc = Start-Process -FilePath "agent\target\x86_64-pc-windows-msvc\release\agent.exe" -PassThru -NoNewWindow
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = "agent\target\x86_64-pc-windows-msvc\release\agent.exe"
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.UseShellExecute = $false
+          $proc = [System.Diagnostics.Process]::Start($psi)
           Write-Host "Agent PID: $($proc.Id)"
           Write-Host "Waiting 20 seconds for beacon..."
           Start-Sleep -Seconds 20
-          Write-Host "Stopping agent..."
+          Write-Host "=== STDOUT ==="
+          Write-Host $proc.StandardOutput.ReadToEnd()
+          Write-Host "=== STDERR ==="
+          Write-Host $proc.StandardError.ReadToEnd()
+          Write-Host "Agent HasExited: $($proc.HasExited)"
+          if ($proc.HasExited) { Write-Host "ExitCode: $($proc.ExitCode)" }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Write-Host "Done."
