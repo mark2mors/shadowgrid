@@ -38,14 +38,6 @@ on:
           - windows
           - linux
           - macos
-      target_arch:
-        description: 'Target architecture'
-        required: true
-        default: 'x86_64'
-        type: choice
-        options:
-          - x86_64
-          - aarch64
       modules:
         description: 'Comma-separated module features to enable'
         required: true
@@ -81,24 +73,21 @@ jobs:
           targets: |
             x86_64-pc-windows-msvc
             x86_64-unknown-linux-gnu
-            aarch64-unknown-linux-gnu
             x86_64-apple-darwin
-            aarch64-apple-darwin
 
       - name: Determine target triple
         id: target
         shell: bash
         run: |
           OS="${{ inputs.target_os }}"
-          ARCH="${{ inputs.target_arch }}"
           if [ "$OS" = "windows" ]; then
-            echo "triple=${ARCH}-pc-windows-msvc" >> $GITHUB_OUTPUT
+            echo "triple=x86_64-pc-windows-msvc" >> $GITHUB_OUTPUT
             echo "ext=.exe" >> $GITHUB_OUTPUT
           elif [ "$OS" = "linux" ]; then
-            echo "triple=${ARCH}-unknown-linux-gnu" >> $GITHUB_OUTPUT
+            echo "triple=x86_64-unknown-linux-gnu" >> $GITHUB_OUTPUT
             echo "ext=" >> $GITHUB_OUTPUT
           elif [ "$OS" = "macos" ]; then
-            echo "triple=${ARCH}-apple-darwin" >> $GITHUB_OUTPUT
+            echo "triple=x86_64-apple-darwin" >> $GITHUB_OUTPUT
             echo "ext=" >> $GITHUB_OUTPUT
           fi
 

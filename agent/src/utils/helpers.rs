@@ -37,17 +37,36 @@ pub fn format_timestamp(ts: i64) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Calculate sleep duration with jitter.
+/// Calculate sleep duration with enhanced jitter.
+/// Adds random extra delay (0-120s) to break patterns.
+/// 10% chance to double sleep (skip a check-in).
 pub fn sleep_with_jitter(base_seconds: u64, jitter_percent: u64) -> u64 {
-    if jitter_percent == 0 || base_seconds == 0 {
+    if base_seconds == 0 {
         return base_seconds;
     }
     let mut rng = rand::thread_rng();
-    let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as u64;
-    if jitter_range == 0 {
-        return base_seconds;
+
+    // Base jitter calculation
+    let mut result = if jitter_percent == 0 {
+        base_seconds
+    } else {
+        let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as u64;
+        if jitter_range == 0 {
+            base_seconds
+        } else {
+            let offset = rng.gen_range(0..=jitter_range * 2);
+            let r = base_seconds as i64 - jitter_range as i64 + offset as i64;
+            r.max(1) as u64
+        }
+    };
+
+    // Random extra delay (0-120s) to break timing patterns
+    result += rng.gen_range(0..=120);
+
+    // 10% chance to double the sleep (skip a check-in entirely)
+    if rng.gen_range(0u8..10) == 0 {
+        result *= 2;
     }
-    let offset = rng.gen_range(0..=jitter_range * 2);
-    let result = base_seconds as i64 - jitter_range as i64 + offset as i64;
-    result.max(1) as u64
+
+    result
 }

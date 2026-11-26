@@ -22,7 +22,6 @@ type buildRequest struct {
 	KillDate     int64    `json:"kill_date"`
 	WorkHours    string   `json:"work_hours"`
 	TargetOS     string   `json:"target_os"`
-	TargetArch   string   `json:"target_arch"`
 	Modules      []string `json:"modules"`
 	OutputFormat string   `json:"output_format"`
 	SignBinary   bool     `json:"sign_binary"`
@@ -90,7 +89,6 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 		"kill_date":      fmt.Sprintf("%d", req.KillDate),
 		"work_hours":     req.WorkHours,
 		"target_os":      req.TargetOS,
-		"target_arch":    req.TargetArch,
 		"modules":        modules,
 		"output_format":  req.OutputFormat,
 		"sign_binary":    signStr,
@@ -130,7 +128,7 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 
 	// Log activity
 	operator := r.Context().Value(operatorKey).(string)
-	s.DB.LogActivity("builder", operator+" triggered build "+buildID+" ("+req.TargetOS+"/"+req.TargetArch+")")
+	s.DB.LogActivity("builder", operator+" triggered build "+buildID+" ("+req.TargetOS+"/x86_64)")
 
 	jsonResponse(w, map[string]interface{}{
 		"build_id": buildID,

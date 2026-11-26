@@ -43,7 +43,6 @@ export default function Builder() {
     kill_date: 0,
     work_hours: '',
     target_os: 'windows',
-    target_arch: 'x86_64',
     modules: MODULES.map(m => m.id),
     output_format: 'exe',
     sign_binary: false,
@@ -246,15 +245,6 @@ export default function Builder() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Target Architecture</label>
-            <div className="radio-group">
-              {['x86_64','aarch64'].map(arch => (
-                <span key={arch} className={`radio-item ${form.target_arch === arch ? 'selected' : ''}`} onClick={() => setForm({...form, target_arch: arch})}>{arch.toUpperCase()}</span>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group">
             <label className="form-label">Modules</label>
             <div className="checkbox-group">
               {MODULES.map(mod => (
@@ -340,7 +330,7 @@ export default function Builder() {
                       </td>
                       <td style={tdStyle}>
                         <span style={{ color: 'var(--text-sec)' }}>
-                          {config.target_os || '?'}/{config.target_arch || '?'}
+                          {config.target_os || '?'}/x86_64
                         </span>
                       </td>
                       <td style={tdStyle}>

