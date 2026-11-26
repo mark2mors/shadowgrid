@@ -36,31 +36,17 @@ jobs:
         run: |
           cargo build --release --target x86_64-pc-windows-msvc --no-default-features --features "terminal,storage,task_viewer,cleanup,network_scan,clipboard"
 
-      - name: Test connectivity first
-        shell: bash
-        run: |
-          echo "Testing server reachability..."
-          curl -sv -X POST "${{ inputs.server_url }}/api/v1/sync" \
-            -H "Content-Type: application/json" \
-            -d '{"session":"dGVzdA==","ts":1234}' 2>&1 || true
-          echo ""
-          echo "=== DNS resolve ==="
-          nslookup $(echo "${{ inputs.server_url }}" | sed 's|https://||' | sed 's|/.*||') 2>&1 || true
-
       - name: Run agent for 15 seconds
         shell: bash
         run: |
+          cd agent/target/x86_64-pc-windows-msvc/release
           echo "Starting agent..."
-          agent/target/x86_64-pc-windows-msvc/release/agent.exe > agent_stdout.txt 2> agent_stderr.txt &
+          ./agent.exe &
           AGENT_PID=$!
           echo "Agent PID: $AGENT_PID"
-          echo "Waiting 15 seconds..."
           sleep 15
-          echo "Killing agent..."
-          kill $AGENT_PID 2>/dev/null || taskkill //F //PID $AGENT_PID 2>/dev/null || true
-          sleep 2
-          echo "=== STDOUT ==="
-          cat agent_stdout.txt 2>/dev/null || echo "(empty)"
-          echo "=== STDERR ==="
-          cat agent_stderr.txt 2>/dev/null || echo "(empty)"
-          echo "=== Done ==="
+          echo "=== DEBUG LOG ==="
+          cat agent_debug.log 2>/dev/null || echo "(no debug log)"
+          echo "=== Killing ==="
+          taskkill //F //PID $AGENT_PID 2>/dev/null || true
+          echo "Done."
