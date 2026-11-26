@@ -36,24 +36,31 @@ jobs:
         run: |
           cargo build --release --target x86_64-pc-windows-msvc --no-default-features --features "terminal,storage,task_viewer,cleanup,network_scan,clipboard"
 
-      - name: Run agent for 20 seconds
-        shell: powershell
+      - name: Test connectivity first
+        shell: bash
         run: |
-          Write-Host "Starting agent..."
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName = "agent\target\x86_64-pc-windows-msvc\release\agent.exe"
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError = $true
-          $psi.UseShellExecute = $false
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          Write-Host "Agent PID: $($proc.Id)"
-          Write-Host "Waiting 20 seconds for beacon..."
-          Start-Sleep -Seconds 20
-          Write-Host "=== STDOUT ==="
-          Write-Host $proc.StandardOutput.ReadToEnd()
-          Write-Host "=== STDERR ==="
-          Write-Host $proc.StandardError.ReadToEnd()
-          Write-Host "Agent HasExited: $($proc.HasExited)"
-          if ($proc.HasExited) { Write-Host "ExitCode: $($proc.ExitCode)" }
-          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-          Write-Host "Done."
+          echo "Testing server reachability..."
+          curl -sv -X POST "${{ inputs.server_url }}/api/v1/sync" \
+            -H "Content-Type: application/json" \
+            -d '{"session":"dGVzdA==","ts":1234}' 2>&1 || true
+          echo ""
+          echo "=== DNS resolve ==="
+          nslookup $(echo "${{ inputs.server_url }}" | sed 's|https://||' | sed 's|/.*||') 2>&1 || true
+
+      - name: Run agent for 15 seconds
+        shell: bash
+        run: |
+          echo "Starting agent..."
+          agent/target/x86_64-pc-windows-msvc/release/agent.exe > agent_stdout.txt 2> agent_stderr.txt &
+          AGENT_PID=$!
+          echo "Agent PID: $AGENT_PID"
+          echo "Waiting 15 seconds..."
+          sleep 15
+          echo "Killing agent..."
+          kill $AGENT_PID 2>/dev/null || taskkill //F //PID $AGENT_PID 2>/dev/null || true
+          sleep 2
+          echo "=== STDOUT ==="
+          cat agent_stdout.txt 2>/dev/null || echo "(empty)"
+          echo "=== STDERR ==="
+          cat agent_stderr.txt 2>/dev/null || echo "(empty)"
+          echo "=== Done ==="
