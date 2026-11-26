@@ -31,7 +31,7 @@ fn get_hostname() -> String {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use winapi::um::winbase::GetComputerNameExW;
+            use winapi::um::sysinfoapi::GetComputerNameExW;
             // 1 = 1
             let mut size: u32 = 256;
             let mut buf: Vec<u16> = vec![0; size as usize];
@@ -148,7 +148,7 @@ fn get_domain() -> String {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use winapi::um::winbase::GetComputerNameExW;
+            use winapi::um::sysinfoapi::GetComputerNameExW;
             // 2 = 2
             let mut size: u32 = 256;
             let mut buf: Vec<u16> = vec![0; size as usize];
