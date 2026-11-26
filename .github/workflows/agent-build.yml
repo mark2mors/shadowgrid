@@ -41,7 +41,7 @@ on:
       modules:
         description: 'Comma-separated module features to enable'
         required: true
-        default: 'terminal,storage,task_viewer,display,input_monitor,vault_reader,config_store,boot_entries,service_manager,tunnel,package_loader,cleanup,network_scan,clipboard'
+        default: 'terminal,storage,task_viewer,display,input_monitor,vault_reader,config_store,boot_entries,service_manager,tunnel,package_loader,cleanup,network_scan,clipboard,remote_desktop'
         type: string
       output_format:
         description: 'Output format'

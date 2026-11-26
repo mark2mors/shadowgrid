@@ -63,6 +63,11 @@ func main() {
 	// WebSocket tunnel endpoint (agent connects here, no JWT)
 	srv.Router.Get("/api/v1/tunnel", srv.TunnelRelay.ServeWs)
 
+	// WebSocket VNC endpoints (agent connects here, no JWT)
+	srv.Router.Get("/api/v1/vnc", srv.VNCRelay.HandleAgentVNC)
+	// Panel VNC WebSocket (JWT passed as query param)
+	srv.Router.Get("/api/v1/vnc/panel", srv.VNCRelay.HandlePanelVNC)
+
 	// Auto-start any listeners that were running before server shutdown
 	srv.AutoStartListeners()
 

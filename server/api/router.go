@@ -12,6 +12,7 @@ import (
 	"shadowgrid/database"
 	"shadowgrid/listener"
 	"shadowgrid/tunnel"
+	"shadowgrid/vnc"
 )
 
 type Server struct {
@@ -21,6 +22,7 @@ type Server struct {
 	Handler      *listener.Handler
 	Listeners    map[int]*listener.HTTPSListener
 	TunnelRelay  *tunnel.TunnelRelay
+	VNCRelay     *vnc.VNCRelay
 	mu           sync.Mutex
 }
 
@@ -32,6 +34,7 @@ func NewServer(db *database.DB, cfg *config.Config, handler *listener.Handler) *
 		Handler:     handler,
 		Listeners:   make(map[int]*listener.HTTPSListener),
 		TunnelRelay: tunnel.NewRelay(),
+		VNCRelay:    vnc.NewVNCRelay(),
 	}
 	s.setupRoutes()
 	return s
@@ -128,6 +131,11 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tunnel/start", s.TunnelRelay.HandleStartProxy)
 		r.Post("/api/tunnel/stop", s.TunnelRelay.HandleStopProxy)
 		r.Get("/api/tunnel/status", s.TunnelRelay.HandleStatus)
+
+		// VNC (Remote Desktop)
+		r.Post("/api/vnc/start", s.VNCRelay.HandleStartSession)
+		r.Post("/api/vnc/stop", s.VNCRelay.HandleStopSession)
+		r.Get("/api/vnc/sessions", s.VNCRelay.HandleGetSessions)
 
 		// Settings
 		r.Get("/api/settings", s.handleGetSettings)

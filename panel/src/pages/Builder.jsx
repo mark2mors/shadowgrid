@@ -26,6 +26,7 @@ const MODULE_CATEGORIES = {
     { id: 'uac_bypass', label: 'Privilege Escalation' },
     { id: 'self_update', label: 'Self Update' },
     { id: 'tunnel', label: 'SOCKS5 Tunnel' },
+    { id: 'remote_desktop', label: 'Remote Desktop' },
   ],
 };
 
