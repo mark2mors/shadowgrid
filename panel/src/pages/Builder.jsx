@@ -36,7 +36,7 @@ const STATUS_COLORS = {
 
 export default function Builder() {
   const [form, setForm] = useState({
-    server_url: 'https://cdn.example.com:443',
+    server_url: window.location.origin,
     aes_key: '',
     sleep_seconds: 5,
     jitter_percent: 20,
