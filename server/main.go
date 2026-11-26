@@ -60,6 +60,9 @@ func main() {
 	srv.Router.Post("/api/v1/upload", lh.HandleUpload)
 	srv.Router.Get("/api/v1/pkg/{id}", lh.HandleDownload)
 
+	// WebSocket tunnel endpoint (agent connects here, no JWT)
+	srv.Router.Get("/api/v1/tunnel", srv.TunnelRelay.ServeWs)
+
 	// Auto-start any listeners that were running before server shutdown
 	srv.AutoStartListeners()
 

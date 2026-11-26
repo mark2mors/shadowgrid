@@ -1,5 +1,6 @@
 import React from 'react';
 import { DashboardIcon, AgentsIcon, CredentialsIcon, FilesIcon, ListenersIcon, BuilderIcon, SettingsIcon } from '../icons';
+import { LogoSidebar } from './Logo';
 
 const items = [
   { id: 'dashboard', label: 'Dashboard', Icon: DashboardIcon },
@@ -19,6 +20,12 @@ export default function Sidebar({ active, onNavigate }) {
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       paddingTop: 12, gap: 4, zIndex: 10,
     }}>
+      <div style={{
+        width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        marginBottom: 8, borderBottom: '1px solid var(--border)', paddingBottom: 8,
+      }} title="ShadowGrid C2">
+        <LogoSidebar size={32} />
+      </div>
       {items.map(item => (
         <div
           key={item.id}

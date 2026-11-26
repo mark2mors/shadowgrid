@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, setToken } from '../api';
+import { LogoFull } from '../components/Logo';
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -28,7 +29,9 @@ export default function Login({ onLogin }) {
   return (
     <div className="login-page">
       <div className="login-box">
-        <div className="login-title"><span>SHADOW</span>GRID</div>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <LogoFull width={260} height={60} showTagline={true} />
+        </div>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Username</label>

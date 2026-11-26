@@ -87,4 +87,12 @@ export const api = {
 
   getSettings: () => request('GET', '/api/settings'),
   updateSettings: (data) => request('POST', '/api/settings', data),
+
+  // Build history bulk delete
+  deleteBuilds: (ids) => request('DELETE', '/api/builder/builds', { ids }),
+
+  // Tunnel (SOCKS5 reverse proxy)
+  tunnelStart: (agentId) => request('POST', '/api/tunnel/start', { agent_id: agentId }),
+  tunnelStop: (agentId) => request('POST', '/api/tunnel/stop', { agent_id: agentId }),
+  tunnelStatus: (agentId) => request('GET', '/api/tunnel/status?agent_id=' + agentId),
 };

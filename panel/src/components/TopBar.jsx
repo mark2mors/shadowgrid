@@ -1,4 +1,5 @@
 import React from 'react';
+import { LogoTopBar } from './Logo';
 
 export default function TopBar({ operator, onLogout }) {
   return (
@@ -8,12 +9,7 @@ export default function TopBar({ operator, onLogout }) {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '0 20px', zIndex: 10,
     }}>
-      <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600,
-        textTransform: 'uppercase', letterSpacing: 2,
-      }}>
-        <span style={{ color: 'var(--green)' }}>SHADOW</span>GRID
-      </div>
+      <LogoTopBar height={26} />
       <div style={{
         display: 'flex', alignItems: 'center', gap: 16,
         fontFamily: 'var(--font-mono)', fontSize: 11,

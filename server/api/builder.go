@@ -295,6 +295,25 @@ func (s *Server) handleBuilderHistory(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, builds)
 }
 
+func (s *Server) handleDeleteBuilds(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		jsonError(w, "ids array required", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.DeleteBuilds(req.IDs); err != nil {
+		jsonError(w, "Failed to delete builds: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	operator := r.Context().Value(operatorKey).(string)
+	s.DB.LogActivity("builder", fmt.Sprintf("%s deleted %d builds", operator, len(req.IDs)))
+	jsonResponse(w, map[string]interface{}{
+		"deleted": len(req.IDs),
+	})
+}
+
 // findGitHubRunID searches recent workflow runs for one matching our build_id
 func (s *Server) findGitHubRunID(token, repo, buildID string) int64 {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/actions/runs?event=workflow_dispatch&per_page=10", repo)

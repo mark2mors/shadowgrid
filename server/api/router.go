@@ -12,24 +12,27 @@ import (
 	"shadowgrid/config"
 	"shadowgrid/database"
 	"shadowgrid/listener"
+	"shadowgrid/tunnel"
 )
 
 type Server struct {
-	DB        *database.DB
-	Config    *config.Config
-	Router    *chi.Mux
-	Handler   *listener.Handler
-	Listeners map[int]*listener.HTTPSListener
-	mu        sync.Mutex
+	DB           *database.DB
+	Config       *config.Config
+	Router       *chi.Mux
+	Handler      *listener.Handler
+	Listeners    map[int]*listener.HTTPSListener
+	TunnelRelay  *tunnel.TunnelRelay
+	mu           sync.Mutex
 }
 
 func NewServer(db *database.DB, cfg *config.Config, handler *listener.Handler) *Server {
 	s := &Server{
-		DB:        db,
-		Config:    cfg,
-		Router:    chi.NewRouter(),
-		Handler:   handler,
-		Listeners: make(map[int]*listener.HTTPSListener),
+		DB:          db,
+		Config:      cfg,
+		Router:      chi.NewRouter(),
+		Handler:     handler,
+		Listeners:   make(map[int]*listener.HTTPSListener),
+		TunnelRelay: tunnel.NewRelay(),
 	}
 	s.setupRoutes()
 	return s
@@ -120,6 +123,12 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/builder/status/{id}", s.handleBuilderStatus)
 		r.Get("/api/builder/download/{id}", s.handleBuilderDownload)
 		r.Get("/api/builder/history", s.handleBuilderHistory)
+		r.Delete("/api/builder/builds", s.handleDeleteBuilds)
+
+		// Tunnel (SOCKS5 reverse proxy)
+		r.Post("/api/tunnel/start", s.TunnelRelay.HandleStartProxy)
+		r.Post("/api/tunnel/stop", s.TunnelRelay.HandleStopProxy)
+		r.Get("/api/tunnel/status", s.TunnelRelay.HandleStatus)
 
 		// Settings
 		r.Get("/api/settings", s.handleGetSettings)

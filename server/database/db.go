@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"log"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -635,6 +636,22 @@ func (d *DB) GetBuilds() ([]map[string]interface{}, error) {
 		})
 	}
 	return builds, nil
+}
+
+// DeleteBuilds deletes multiple builds by their IDs.
+func (d *DB) DeleteBuilds(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := "DELETE FROM builds WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	_, err := d.Exec(query, args...)
+	return err
 }
 
 // BuildRecord represents a build in the database
