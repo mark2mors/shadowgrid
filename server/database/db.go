@@ -148,7 +148,7 @@ func (d *DB) ensureAdmin() {
 	var count int
 	d.QueryRow("SELECT COUNT(*) FROM operators WHERE username='admin'").Scan(&count)
 	if count == 0 {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("shadowgrid"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("rat"), bcrypt.DefaultCost)
 		d.Exec("INSERT INTO operators (username, password_hash, role) VALUES (?, ?, ?)",
 			"admin", string(hash), "admin")
 		log.Println("[DB] Default admin user created (admin/shadowgrid)")
@@ -440,6 +440,16 @@ func (d *DB) UpdateListener(id int, l *models.Listener) error {
 func (d *DB) UpdateListenerStatus(id int, status string) error {
 	_, err := d.Exec("UPDATE listeners SET status=? WHERE id=?", status, id)
 	return err
+}
+
+func (d *DB) GetListener(id int) (*models.Listener, error) {
+	var l models.Listener
+	err := d.QueryRow("SELECT id,name,type,bind_host,bind_port,domain,status,config_json,created_at FROM listeners WHERE id=?", id).
+		Scan(&l.ID, &l.Name, &l.Type, &l.BindHost, &l.BindPort, &l.Domain, &l.Status, &l.ConfigJSON, &l.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &l, nil
 }
 
 // === SETTINGS ===

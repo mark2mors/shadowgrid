@@ -53,12 +53,15 @@ func main() {
 	lh := &listener.Handler{DB: db, Config: cfg}
 
 	// Create API server
-	srv := api.NewServer(db, cfg)
+	srv := api.NewServer(db, cfg, lh)
 
 	// Wire agent listener endpoints into the main router
 	srv.Router.Post("/api/v1/sync", lh.HandleSync)
 	srv.Router.Post("/api/v1/upload", lh.HandleUpload)
 	srv.Router.Get("/api/v1/pkg/{id}", lh.HandleDownload)
+
+	// Auto-start any listeners that were running before server shutdown
+	srv.AutoStartListeners()
 
 	addr := fmt.Sprintf("%s:%d", cfg.ListenAddr, cfg.ListenPort)
 
