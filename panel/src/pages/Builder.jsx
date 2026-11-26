@@ -18,6 +18,7 @@ const MODULES = [
   { id: 'clipboard', label: 'Clipboard' },
   { id: 'evasion', label: 'Evasion Suite' },
   { id: 'anti_analysis', label: 'Anti-Analysis' },
+  { id: 'uac_bypass', label: 'Privilege Escalation' },
   { id: 'self_update', label: 'Self Update' },
 ];
 

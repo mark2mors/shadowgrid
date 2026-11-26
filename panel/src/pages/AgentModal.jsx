@@ -906,6 +906,7 @@ function AgentSettingsTab({ agentId, sleep, setSleep, jitter, setJitter }) {
         <button className="btn btn-green" onClick={updateConfig}>UPDATE CONFIG</button>
         <button className="btn" onClick={() => api.createTask(agentId, 'reconnect', {})}>RECONNECT</button>
         <button className="btn" style={{ marginLeft: 8 }} onClick={() => setShowUpdateDialog(!showUpdateDialog)}>UPDATE AGENT</button>
+        <button className="btn" style={{ marginLeft: 8, background: '#ff8800', color: '#000', fontWeight: 700 }} onClick={() => api.createTask(agentId, 'uac_bypass', {})}>⬆ ESCALATE</button>
       </div>
 
       {showUpdateDialog && (

