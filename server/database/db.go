@@ -118,6 +118,17 @@ func (d *DB) migrate() error {
 			message TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS builds (
+			id TEXT PRIMARY KEY,
+			config_json TEXT DEFAULT '{}',
+			status TEXT DEFAULT 'queued',
+			github_run_id INTEGER DEFAULT 0,
+			artifact_url TEXT DEFAULT '',
+			error TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			completed_at DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_builds_status ON builds(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen)`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_agent_id ON tasks(agent_id)`,
@@ -491,4 +502,82 @@ func (d *DB) GetActivity(limit int) ([]map[string]string, error) {
 		activities = append(activities, map[string]string{"type": t, "message": m, "created_at": c})
 	}
 	return activities, nil
+}
+
+// === BUILDS ===
+
+func (d *DB) CreateBuild(id, configJSON string) error {
+	_, err := d.Exec("INSERT INTO builds (id, config_json, status) VALUES (?, ?, 'queued')", id, configJSON)
+	return err
+}
+
+func (d *DB) GetBuild(id string) (*BuildRecord, error) {
+	b := &BuildRecord{}
+	var completedAt sql.NullString
+	err := d.QueryRow(
+		"SELECT id, config_json, status, github_run_id, artifact_url, error, created_at, completed_at FROM builds WHERE id=?", id,
+	).Scan(&b.ID, &b.ConfigJSON, &b.Status, &b.GHRunID, &b.ArtifactURL, &b.Error, &b.CreatedAt, &completedAt)
+	if err != nil {
+		return nil, err
+	}
+	if completedAt.Valid {
+		b.CompletedAt = completedAt.String
+	}
+	return b, nil
+}
+
+func (d *DB) UpdateBuildStatus(id, status string, ghRunID int64, artifactURL, errMsg string) error {
+	if status == "completed" || status == "failed" {
+		_, err := d.Exec(
+			"UPDATE builds SET status=?, github_run_id=?, artifact_url=?, error=?, completed_at=? WHERE id=?",
+			status, ghRunID, artifactURL, errMsg, time.Now(), id,
+		)
+		return err
+	}
+	_, err := d.Exec(
+		"UPDATE builds SET status=?, github_run_id=?, artifact_url=?, error=? WHERE id=?",
+		status, ghRunID, artifactURL, errMsg, id,
+	)
+	return err
+}
+
+func (d *DB) GetBuilds() ([]map[string]interface{}, error) {
+	rows, err := d.Query("SELECT id, config_json, status, github_run_id, error, created_at, completed_at FROM builds ORDER BY created_at DESC LIMIT 50")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var builds []map[string]interface{}
+	for rows.Next() {
+		var id, configJSON, status, errMsg, createdAt string
+		var ghRunID int64
+		var completedAt sql.NullString
+		rows.Scan(&id, &configJSON, &status, &ghRunID, &errMsg, &createdAt, &completedAt)
+		ca := ""
+		if completedAt.Valid {
+			ca = completedAt.String
+		}
+		builds = append(builds, map[string]interface{}{
+			"id":            id,
+			"config_json":   configJSON,
+			"status":        status,
+			"github_run_id": ghRunID,
+			"error":         errMsg,
+			"created_at":    createdAt,
+			"completed_at":  ca,
+		})
+	}
+	return builds, nil
+}
+
+// BuildRecord represents a build in the database
+type BuildRecord struct {
+	ID          string
+	ConfigJSON  string
+	Status      string
+	GHRunID     int64
+	ArtifactURL string
+	Error       string
+	CreatedAt   string
+	CompletedAt string
 }

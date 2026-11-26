@@ -78,6 +78,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/builder/generate", s.handleBuilderGenerate)
 		r.Get("/api/builder/status/{id}", s.handleBuilderStatus)
 		r.Get("/api/builder/download/{id}", s.handleBuilderDownload)
+		r.Get("/api/builder/history", s.handleBuilderHistory)
 
 		// Settings
 		r.Get("/api/settings", s.handleGetSettings)

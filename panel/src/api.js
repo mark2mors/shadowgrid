@@ -66,6 +66,23 @@ export const api = {
 
   buildAgent: (data) => request('POST', '/api/builder/generate', data),
   buildStatus: (id) => request('GET', '/api/builder/status/' + id),
+  builderHistory: () => request('GET', '/api/builder/history'),
+  downloadBuild: (id) => {
+    const token = localStorage.getItem('sg_token');
+    const a = document.createElement('a');
+    a.href = '/api/builder/download/' + id;
+    // Use fetch with auth header to download
+    fetch('/api/builder/download/' + id, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(r => r.blob()).then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'agent-' + id + '.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  },
 
   getSettings: () => request('GET', '/api/settings'),
   updateSettings: (data) => request('POST', '/api/settings', data),

