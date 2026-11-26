@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod beacon;
 mod config;
 mod core;

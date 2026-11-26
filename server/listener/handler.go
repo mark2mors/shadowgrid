@@ -57,10 +57,20 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decrypt
-	plaintext, err := sgcrypto.Decrypt(req.Session, h.Config.AESKey)
-	if err != nil {
-		log.Printf("[SYNC] Decrypt failed: %v", err)
+	// Try decrypting with all known AES keys from builds
+	keys := h.getKnownKeys()
+	var plaintext []byte
+	var matchedKey string
+	var err error
+	for _, key := range keys {
+		plaintext, err = sgcrypto.Decrypt(req.Session, key)
+		if err == nil {
+			matchedKey = key
+			break
+		}
+	}
+	if matchedKey == "" {
+		log.Printf("[SYNC] Decrypt failed with all %d known keys", len(keys))
 		http.Error(w, "unauthorized", 401)
 		return
 	}
@@ -158,7 +168,7 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respJSON, _ := json.Marshal(resp)
-	encrypted, err := sgcrypto.Encrypt(respJSON, h.Config.AESKey)
+	encrypted, err := sgcrypto.Encrypt(respJSON, matchedKey)
 	if err != nil {
 		http.Error(w, "encryption error", 500)
 		return
@@ -223,4 +233,37 @@ func (h *Handler) HandleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, f.LocalPath)
+}
+
+// getKnownKeys returns all AES keys from completed builds + the server config key
+func (h *Handler) getKnownKeys() []string {
+	keys := []string{}
+	// Always include the server's own key
+	if h.Config.AESKey != "" {
+		keys = append(keys, h.Config.AESKey)
+	}
+	// Pull keys from all builds in DB
+	builds, err := h.DB.GetBuilds()
+	if err != nil {
+		return keys
+	}
+	seen := map[string]bool{}
+	if h.Config.AESKey != "" {
+		seen[h.Config.AESKey] = true
+	}
+	for _, b := range builds {
+		configJSON, ok := b["config_json"].(string)
+		if !ok {
+			continue
+		}
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(configJSON), &cfg) != nil {
+			continue
+		}
+		if key, ok := cfg["aes_key"].(string); ok && key != "" && !seen[key] {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	return keys
 }
