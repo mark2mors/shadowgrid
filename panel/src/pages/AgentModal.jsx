@@ -28,8 +28,8 @@ export default function AgentModal({ agent, onClose }) {
   }, [agent.id]);
 
   const sendCommand = async (cmd) => {
-    const res = await api.createTask(agent.id, 'terminal', { command: cmd });
-    setTasks(prev => [{ id: res.id, task_type: 'terminal', args_json: JSON.stringify({ command: cmd }), status: 'pending', created_at: new Date().toISOString() }, ...prev]);
+    const res = await api.createTask(agent.id, 'terminal', { cmd: cmd });
+    setTasks(prev => [{ id: res.id, task_type: 'terminal', args_json: JSON.stringify({ cmd: cmd }), status: 'pending', created_at: new Date().toISOString() }, ...prev]);
     return 'Task #' + res.id + ' queued';
   };
 

@@ -45,18 +45,32 @@ fn execute_command(cmd: &str, shell: &str, timeout_secs: u64) -> Result<String, 
     #[cfg(target_os = "windows")]
     let mut child = {
         match shell {
-            "powershell" | "ps" => Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive", "-Command", cmd])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("spawn powershell: {}", e))?,
-            _ => Command::new("cmd.exe")
-                .args(["/c", cmd])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("spawn cmd: {}", e))?,
+            "powershell" | "ps" => {
+                let mut cmd_proc = crate::utils::helpers::hidden_command("powershell.exe");
+                cmd_proc.args(["-NoProfile", "-NonInteractive", "-Command", cmd])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd_proc.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
+                cmd_proc.spawn()
+                    .map_err(|e| format!("spawn powershell: {}", e))?
+            },
+            _ => {
+                let mut cmd_proc = crate::utils::helpers::hidden_command("cmd.exe");
+                cmd_proc.args(["/c", cmd])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd_proc.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
+                cmd_proc.spawn()
+                    .map_err(|e| format!("spawn cmd: {}", e))?
+            },
         }
     };
 

