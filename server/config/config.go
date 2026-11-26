@@ -24,7 +24,7 @@ func Load() *Config {
 		ListenAddr: getEnv("SG_LISTEN_ADDR", "0.0.0.0"),
 		ListenPort: getEnvInt("SG_LISTEN_PORT", 8443),
 		DBPath:     getEnv("SG_DB_PATH", "shadowgrid.db"),
-		JWTSecret:  getEnv("SG_JWT_SECRET", generateRandom(32)),
+		JWTSecret:  getEnv("SG_JWT_SECRET", "shadowgrid-jwt-secret-key-2026"),
 		AESKey:     getEnv("SG_AES_KEY", generateRandom(32)),
 		TLSCert:    getEnv("SG_TLS_CERT", ""),
 		TLSKey:     getEnv("SG_TLS_KEY", ""),
