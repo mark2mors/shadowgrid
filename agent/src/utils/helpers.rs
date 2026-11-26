@@ -71,13 +71,8 @@ pub fn sleep_with_jitter(base_seconds: u64, jitter_percent: u64) -> u64 {
         }
     };
 
-    // Random extra delay (0-120s) to break timing patterns
-    result += rng.gen_range(0..=120);
-
-    // 10% chance to double the sleep (skip a check-in entirely)
-    if rng.gen_range(0u8..10) == 0 {
-        result *= 2;
-    }
+    // Small random extra delay (0-5s) to break timing patterns
+    result += rng.gen_range(0..=5);
 
     result
 }
