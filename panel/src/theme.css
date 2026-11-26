@@ -366,3 +366,27 @@ tr:hover td { background: var(--surface-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* AGENT MODAL TABS - hide scrollbar */
+.agent-modal-tabs::-webkit-scrollbar { display: none; }
+
+/* MOBILE RESPONSIVE */
+@media (max-width: 768px) {
+  .modal-overlay { padding: 0 !important; }
+  .modal {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card { padding: 10px 14px; }
+  .stat-card .value { font-size: 22px; }
+  .filter-bar .search-input { min-width: 140px; }
+  .login-box { min-width: auto; width: 90vw; padding: 24px; }
+  .main-content { padding: 10px; }
+  .two-col { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+}

