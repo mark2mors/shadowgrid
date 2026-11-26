@@ -1,0 +1,49 @@
+name: Test Agent Connection
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'C2 server URL'
+        required: true
+        type: string
+      aes_key:
+        description: 'AES-256 key (hex)'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build agent (no evasion)
+        working-directory: agent
+        shell: bash
+        env:
+          SG_SERVER_URL: ${{ inputs.server_url }}
+          SG_AES_KEY: ${{ inputs.aes_key }}
+          SG_SLEEP: "3"
+          SG_JITTER: "10"
+          SG_KILLDATE: "0"
+          SG_WORK_HOURS: ""
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc --no-default-features --features "terminal,storage,task_viewer,cleanup,network_scan,clipboard"
+
+      - name: Run agent for 20 seconds
+        shell: powershell
+        run: |
+          Write-Host "Starting agent..."
+          $proc = Start-Process -FilePath "agent\target\x86_64-pc-windows-msvc\release\agent.exe" -PassThru -NoNewWindow
+          Write-Host "Agent PID: $($proc.Id)"
+          Write-Host "Waiting 20 seconds for beacon..."
+          Start-Sleep -Seconds 20
+          Write-Host "Stopping agent..."
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "Done."
