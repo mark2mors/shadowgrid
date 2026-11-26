@@ -31,11 +31,11 @@ fn get_hostname() -> String {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use winapi::um::sysinfoapi::GetComputerNameExW;
-            use winapi::um::winbase::ComputerNameDnsHostname;
+            use winapi::um::winbase::GetComputerNameExW;
+            // 1 = 1
             let mut size: u32 = 256;
             let mut buf: Vec<u16> = vec![0; size as usize];
-            if GetComputerNameExW(ComputerNameDnsHostname, buf.as_mut_ptr(), &mut size) != 0 {
+            if GetComputerNameExW(1, buf.as_mut_ptr(), &mut size) != 0 {
                 return String::from_utf16_lossy(&buf[..size as usize]);
             }
         }
@@ -148,11 +148,11 @@ fn get_domain() -> String {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use winapi::um::sysinfoapi::GetComputerNameExW;
-            use winapi::um::winbase::ComputerNameDnsDomain;
+            use winapi::um::winbase::GetComputerNameExW;
+            // 2 = 2
             let mut size: u32 = 256;
             let mut buf: Vec<u16> = vec![0; size as usize];
-            if GetComputerNameExW(ComputerNameDnsDomain, buf.as_mut_ptr(), &mut size) != 0 {
+            if GetComputerNameExW(2, buf.as_mut_ptr(), &mut size) != 0 {
                 let domain = String::from_utf16_lossy(&buf[..size as usize]);
                 if !domain.is_empty() {
                     return domain;

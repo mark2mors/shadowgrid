@@ -50,6 +50,7 @@ pub fn list_subkeys(task_id: i64, args: &serde_json::Value) -> TaskResult {
 #[cfg(target_os = "windows")]
 fn get_hive(name: &str) -> Option<winapi::shared::minwindef::HKEY> {
     use winapi::um::winreg::*;
+        use winapi::shared::minwindef::HKEY;
     match name.to_uppercase().as_str() {
         "HKLM" | "HKEY_LOCAL_MACHINE" => Some(HKEY_LOCAL_MACHINE),
         "HKCU" | "HKEY_CURRENT_USER" => Some(HKEY_CURRENT_USER),
@@ -62,6 +63,7 @@ fn get_hive(name: &str) -> Option<winapi::shared::minwindef::HKEY> {
 #[cfg(target_os = "windows")]
 fn read_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     use winapi::um::winreg::*;
+        use winapi::shared::minwindef::HKEY;
     use winapi::um::winnt::*;
     use std::ptr;
 
@@ -156,6 +158,7 @@ fn read_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
 #[cfg(target_os = "windows")]
 fn write_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     use winapi::um::winreg::*;
+        use winapi::shared::minwindef::HKEY;
     use winapi::um::winnt::*;
     use std::ptr;
 
@@ -240,6 +243,7 @@ fn write_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
 #[cfg(target_os = "windows")]
 fn delete_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     use winapi::um::winreg::*;
+        use winapi::shared::minwindef::HKEY;
     use winapi::um::winnt::*;
     use std::ptr;
 
@@ -291,6 +295,7 @@ fn delete_key_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
 #[cfg(target_os = "windows")]
 fn list_subkeys_windows(task_id: i64, args: &serde_json::Value) -> TaskResult {
     use winapi::um::winreg::*;
+        use winapi::shared::minwindef::HKEY;
     use winapi::um::winnt::*;
     use std::ptr;
 

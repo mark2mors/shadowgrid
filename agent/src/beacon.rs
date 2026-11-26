@@ -167,6 +167,7 @@ pub fn run(config: Arc<Config>) {
                 let results_clone = Arc::clone(&results);
                 let server_url = config.server_url.clone();
                 let agent_id = config.agent_id.clone();
+                let is_cleanup = task.task_type == "cleanup";
 
                 std::thread::spawn(move || {
                     // Inject server context into storage upload tasks
@@ -185,7 +186,7 @@ pub fn run(config: Arc<Config>) {
                 });
 
                 // Check if this was a cleanup task — if so, we exit after sending the result
-                if task.task_type == "cleanup" {
+                if is_cleanup {
                     // Give the cleanup task a moment to complete
                     std::thread::sleep(std::time::Duration::from_secs(2));
                     std::process::exit(0);

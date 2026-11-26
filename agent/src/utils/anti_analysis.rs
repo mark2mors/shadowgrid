@@ -53,6 +53,7 @@ fn is_debugger_present() -> bool {
 #[cfg(all(feature = "anti_analysis", target_os = "windows"))]
 fn is_vm() -> bool {
     use winapi::um::winreg::*;
+    use winapi::shared::minwindef::HKEY;
     use winapi::um::winnt::*;
     use std::ptr;
 
