@@ -22,27 +22,27 @@ const MODULES = [
 ];
 
 const APP_DISGUISES = [
-  { id: 'none', label: 'None (Generic)', icon: null, color: null, process: 'svchost.exe', company: '', product: '' },
-  { id: 'adobe_acrobat', label: 'Adobe Acrobat', icon: 'adobeacrobatreader', color: 'EC1C24', process: 'AcroRd32.exe', company: 'Adobe Inc.', product: 'Adobe Acrobat Reader DC' },
-  { id: 'chrome', label: 'Google Chrome', icon: 'googlechrome', color: '4285F4', process: 'chrome.exe', company: 'Google LLC', product: 'Google Chrome' },
-  { id: 'edge', label: 'Microsoft Edge', icon: 'microsoftedge', color: '0078D7', process: 'msedge.exe', company: 'Microsoft Corporation', product: 'Microsoft Edge' },
-  { id: 'teams', label: 'Microsoft Teams', icon: 'microsoftteams', color: '6264A7', process: 'Teams.exe', company: 'Microsoft Corporation', product: 'Microsoft Teams' },
-  { id: 'zoom', label: 'Zoom', icon: 'zoom', color: '0B5CFF', process: 'Zoom.exe', company: 'Zoom Video Communications', product: 'Zoom Meetings' },
-  { id: 'slack', label: 'Slack', icon: 'slack', color: '4A154B', process: 'slack.exe', company: 'Salesforce', product: 'Slack' },
-  { id: 'discord', label: 'Discord', icon: 'discord', color: '5865F2', process: 'Discord.exe', company: 'Discord Inc.', product: 'Discord' },
-  { id: 'spotify', label: 'Spotify', icon: 'spotify', color: '1DB954', process: 'Spotify.exe', company: 'Spotify AB', product: 'Spotify' },
-  { id: 'steam', label: 'Steam', icon: 'steam', color: '000000', process: 'steam.exe', company: 'Valve Corporation', product: 'Steam' },
-  { id: 'vlc', label: 'VLC Player', icon: 'vlcmediaplayer', color: 'FF8800', process: 'vlc.exe', company: 'VideoLAN', product: 'VLC media player' },
-  { id: 'sevenzip', label: '7-Zip', icon: '7zip', color: '000000', process: '7zFM.exe', company: 'Igor Pavlov', product: '7-Zip File Manager' },
-  { id: 'notepadpp', label: 'Notepad++', icon: 'notepadplusplus', color: '90E59A', process: 'notepad++.exe', company: 'Don Ho', product: 'Notepad++' },
-  { id: 'winrar', label: 'WinRAR', icon: null, color: null, process: 'WinRAR.exe', company: 'Alexander Roshal', product: 'WinRAR archiver' },
-  { id: 'filezilla', label: 'FileZilla', icon: 'filezilla', color: 'BF0000', process: 'filezilla.exe', company: 'FileZilla Project', product: 'FileZilla FTP Client' },
-  { id: 'putty', label: 'PuTTY', icon: null, color: null, process: 'putty.exe', company: 'Simon Tatham', product: 'PuTTY SSH Client' },
-  { id: 'onedrive', label: 'OneDrive', icon: 'microsoftonedrive', color: '0078D4', process: 'OneDrive.exe', company: 'Microsoft Corporation', product: 'Microsoft OneDrive' },
-  { id: 'dropbox', label: 'Dropbox', icon: 'dropbox', color: '0061FF', process: 'Dropbox.exe', company: 'Dropbox Inc.', product: 'Dropbox' },
-  { id: 'nodejs', label: 'Node.js', icon: 'nodedotjs', color: '339933', process: 'node.exe', company: 'OpenJS Foundation', product: 'Node.js' },
-  { id: 'python', label: 'Python', icon: 'python', color: '3776AB', process: 'python.exe', company: 'Python Software Foundation', product: 'Python' },
-  { id: 'vscode', label: 'VS Code', icon: 'visualstudiocode', color: '007ACC', process: 'Code.exe', company: 'Microsoft Corporation', product: 'Visual Studio Code' },
+  { id: 'none', label: 'None (Generic)', icon: null, domain: null, process: 'svchost.exe', company: '', product: '' },
+  { id: 'adobe_acrobat', label: 'Adobe Acrobat', icon: 'adobe', domain: 'adobe.com', process: 'AcroRd32.exe', company: 'Adobe Inc.', product: 'Adobe Acrobat Reader DC' },
+  { id: 'chrome', label: 'Google Chrome', icon: 'chrome', domain: 'google.com', process: 'chrome.exe', company: 'Google LLC', product: 'Google Chrome' },
+  { id: 'edge', label: 'Microsoft Edge', icon: 'edge', domain: 'microsoft.com', process: 'msedge.exe', company: 'Microsoft Corporation', product: 'Microsoft Edge' },
+  { id: 'teams', label: 'Microsoft Teams', icon: 'teams', domain: 'microsoft.com', process: 'Teams.exe', company: 'Microsoft Corporation', product: 'Microsoft Teams' },
+  { id: 'zoom', label: 'Zoom', icon: 'zoom', domain: 'zoom.us', process: 'Zoom.exe', company: 'Zoom Video Communications', product: 'Zoom Meetings' },
+  { id: 'slack', label: 'Slack', icon: 'slack', domain: 'slack.com', process: 'slack.exe', company: 'Salesforce', product: 'Slack' },
+  { id: 'discord', label: 'Discord', icon: 'discord', domain: 'discord.com', process: 'Discord.exe', company: 'Discord Inc.', product: 'Discord' },
+  { id: 'spotify', label: 'Spotify', icon: 'spotify', domain: 'spotify.com', process: 'Spotify.exe', company: 'Spotify AB', product: 'Spotify' },
+  { id: 'steam', label: 'Steam', icon: 'steam', domain: 'steampowered.com', process: 'steam.exe', company: 'Valve Corporation', product: 'Steam' },
+  { id: 'vlc', label: 'VLC Player', icon: 'vlc', domain: 'videolan.org', process: 'vlc.exe', company: 'VideoLAN', product: 'VLC media player' },
+  { id: 'sevenzip', label: '7-Zip', icon: '7zip', domain: '7-zip.org', process: '7zFM.exe', company: 'Igor Pavlov', product: '7-Zip File Manager' },
+  { id: 'notepadpp', label: 'Notepad++', icon: 'npp', domain: 'notepad-plus-plus.org', process: 'notepad++.exe', company: 'Don Ho', product: 'Notepad++' },
+  { id: 'winrar', label: 'WinRAR', icon: 'winrar', domain: 'win-rar.com', process: 'WinRAR.exe', company: 'Alexander Roshal', product: 'WinRAR archiver' },
+  { id: 'filezilla', label: 'FileZilla', icon: 'filezilla', domain: 'filezilla-project.org', process: 'filezilla.exe', company: 'FileZilla Project', product: 'FileZilla FTP Client' },
+  { id: 'putty', label: 'PuTTY', icon: 'putty', domain: 'putty.org', process: 'putty.exe', company: 'Simon Tatham', product: 'PuTTY SSH Client' },
+  { id: 'onedrive', label: 'OneDrive', icon: 'onedrive', domain: 'onedrive.com', process: 'OneDrive.exe', company: 'Microsoft Corporation', product: 'Microsoft OneDrive' },
+  { id: 'dropbox', label: 'Dropbox', icon: 'dropbox', domain: 'dropbox.com', process: 'Dropbox.exe', company: 'Dropbox Inc.', product: 'Dropbox' },
+  { id: 'nodejs', label: 'Node.js', icon: 'nodejs', domain: 'nodejs.org', process: 'node.exe', company: 'OpenJS Foundation', product: 'Node.js' },
+  { id: 'python', label: 'Python', icon: 'python', domain: 'python.org', process: 'python.exe', company: 'Python Software Foundation', product: 'Python' },
+  { id: 'vscode', label: 'VS Code', icon: 'vscode', domain: 'code.visualstudio.com', process: 'Code.exe', company: 'Microsoft Corporation', product: 'Visual Studio Code' },
 ];
 
 const STATUS_LABELS = {
@@ -359,7 +359,7 @@ export default function Builder() {
                         )}
                         {app.icon ? (
                           <img
-                            src={`https://cdn.simpleicons.org/${app.icon}/${app.color}`}
+                            src={`https://icon.horse/icon/${app.domain}`}
                             alt={app.label}
                             width={28}
                             height={28}
