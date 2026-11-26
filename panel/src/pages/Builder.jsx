@@ -16,6 +16,8 @@ const MODULES = [
   { id: 'cleanup', label: 'Cleanup' },
   { id: 'network_scan', label: 'Network Scan' },
   { id: 'clipboard', label: 'Clipboard' },
+  { id: 'evasion', label: 'Evasion Suite' },
+  { id: 'anti_analysis', label: 'Anti-Analysis' },
 ];
 
 const STATUS_LABELS = {

