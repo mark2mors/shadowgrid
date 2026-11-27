@@ -120,7 +120,18 @@ export default function Builder() {
   const loadHistory = async () => {
     try {
       const history = await api.builderHistory();
-      setBuildHistory(history || []);
+      const items = history || [];
+      // Force-refresh any in_progress builds from GitHub
+      const refreshed = await Promise.all(items.map(async (b) => {
+        if (b.status === 'in_progress' || b.status === 'queued') {
+          try {
+            const fresh = await api.buildStatus(b.build_id || b.id);
+            return { ...b, ...fresh };
+          } catch { return b; }
+        }
+        return b;
+      }));
+      setBuildHistory(refreshed);
     } catch (e) {}
   };
 
