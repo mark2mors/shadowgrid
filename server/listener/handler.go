@@ -17,12 +17,14 @@ import (
 	"shadowgrid/config"
 	sgcrypto "shadowgrid/crypto"
 	"shadowgrid/database"
+	"shadowgrid/interact"
 	"shadowgrid/models"
 )
 
 type Handler struct {
-	DB     *database.DB
-	Config *config.Config
+	DB              *database.DB
+	Config          *config.Config
+	InteractServer  *interact.InteractServer
 }
 
 // IP enrichment cache to avoid re-querying ip-api.com
@@ -255,8 +257,15 @@ func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
 		}
 		h.DB.CompleteTask(res.TaskID, res.Output, res.OutputType)
 
-		// Auto-store vault_reader results as credentials
+		// Get task type for routing
 		taskType := h.DB.GetTaskType(res.TaskID)
+
+		// Push result to interactive panel sessions via WebSocket
+		if h.InteractServer != nil {
+			h.InteractServer.PushResult(payload.ID, res.TaskID, taskType, res.Output)
+		}
+
+		// Auto-store vault_reader results as credentials
 		if taskType == "vault_reader" {
 			var creds []struct {
 				Source   string `json:"source"`

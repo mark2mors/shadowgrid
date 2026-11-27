@@ -10,31 +10,37 @@ import (
 
 	"shadowgrid/config"
 	"shadowgrid/database"
+	"shadowgrid/interact"
 	"shadowgrid/listener"
 	"shadowgrid/tunnel"
 	"shadowgrid/vnc"
 )
 
 type Server struct {
-	DB           *database.DB
-	Config       *config.Config
-	Router       *chi.Mux
-	Handler      *listener.Handler
-	Listeners    map[int]*listener.HTTPSListener
-	TunnelRelay  *tunnel.TunnelRelay
-	VNCRelay     *vnc.VNCRelay
-	mu           sync.Mutex
+	DB             *database.DB
+	Config         *config.Config
+	Router         *chi.Mux
+	Handler        *listener.Handler
+	Listeners      map[int]*listener.HTTPSListener
+	TunnelRelay    *tunnel.TunnelRelay
+	VNCRelay       *vnc.VNCRelay
+	InteractServer *interact.InteractServer
+	mu             sync.Mutex
 }
 
 func NewServer(db *database.DB, cfg *config.Config, handler *listener.Handler) *Server {
+	interactSrv := interact.New(db, cfg.JWTSecret)
+	handler.InteractServer = interactSrv
+
 	s := &Server{
-		DB:          db,
-		Config:      cfg,
-		Router:      chi.NewRouter(),
-		Handler:     handler,
-		Listeners:   make(map[int]*listener.HTTPSListener),
-		TunnelRelay: tunnel.NewRelay(),
-		VNCRelay:    vnc.NewVNCRelay(),
+		DB:             db,
+		Config:         cfg,
+		Router:         chi.NewRouter(),
+		Handler:        handler,
+		Listeners:      make(map[int]*listener.HTTPSListener),
+		TunnelRelay:    tunnel.NewRelay(),
+		VNCRelay:       vnc.NewVNCRelay(),
+		InteractServer: interactSrv,
 	}
 	s.setupRoutes()
 	return s

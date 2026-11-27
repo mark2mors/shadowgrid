@@ -68,6 +68,9 @@ func main() {
 	// Panel VNC WebSocket (JWT passed as query param)
 	srv.Router.Get("/api/v1/vnc/panel", srv.VNCRelay.HandlePanelVNC)
 
+	// WebSocket interactive session endpoint (JWT passed as query param)
+	srv.Router.Get("/api/v1/interact", srv.InteractServer.HandlePanel)
+
 	// Auto-start any listeners that were running before server shutdown
 	srv.AutoStartListeners()
 
